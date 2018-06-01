@@ -21,10 +21,10 @@ pub enum RuntimeAdapterEvent {
 /// Common trait for runtime adapter implementations.
 pub trait RuntimeAdapter {
     /// Starts the underlying data source runtime.
-    fn start();
+    fn start(&mut self);
 
     /// Stops the underlying data source runtime.
-    fn stop();
+    fn stop(&mut self);
 
     /// Receiver from which otehrs can read runtime events emitted by the adapter.
     /// Can only be called once. Any consecutive calls will result in a StreamError.
