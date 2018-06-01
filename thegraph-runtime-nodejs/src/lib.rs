@@ -3,7 +3,8 @@ extern crate http;
 extern crate hyper;
 #[macro_use]
 extern crate slog;
-extern crate tempdir;
+extern crate serde_json;
+extern crate tempfile;
 extern crate thegraph;
 extern crate tokio_core;
 
