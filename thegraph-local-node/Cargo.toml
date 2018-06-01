@@ -7,6 +7,7 @@ clap = "2.31.2"
 futures = "0.1.21"
 sentry = "0.3.1"
 slog = "2.2.3"
+tempfile = "3.0"
 tokio = "0.1.5"
 tokio-core = "0.1.17"
 thegraph = { path = "../thegraph" }

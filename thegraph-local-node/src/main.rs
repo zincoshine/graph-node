@@ -4,6 +4,7 @@ extern crate futures;
 extern crate sentry;
 #[macro_use]
 extern crate slog;
+extern crate tempfile;
 extern crate thegraph;
 extern crate thegraph_core;
 extern crate thegraph_hyper;
@@ -85,19 +86,24 @@ fn main() {
 
     info!(logger, "Starting up");
 
+    // Create temporary directory for the data source runtime adapter
+    let temp_dir = tempfile::tempdir()
+        .expect("Failed to create temporary directory for data source runtime adapter");
+
     // Create system components
     let mut data_source_provider = mock::MockDataSourceProvider::new(&logger);
     let mut schema_provider = thegraph_core::SchemaProvider::new(&logger, core.handle());
     let mut store = DieselStore::new(StoreConfig { url: postgres_url }, &logger, core.handle());
     let mut graphql_server = HyperGraphQLServer::new(&logger, core.handle());
-    let data_source_runtime_adapter = match (data_source_definition, data_source_runtime) {
+    let mut data_source_runtime_adapter = match (data_source_definition, data_source_runtime) {
         (Some(definition), Some(runtime)) => Some(NodeRuntimeAdapter::new(
             &logger,
             core.handle(),
             RuntimeAdapterConfig {
+                temp_dir: String::from(temp_dir.path().to_str().unwrap()),
                 data_source_definition: definition.to_string(),
                 runtime_source_dir: runtime.to_string(),
-                json_rpc_url: "0.0.0.0:7545".to_string(),
+                json_rpc_url: "localhost:8545".to_string(),
             },
         )),
         _ => {
@@ -157,7 +163,7 @@ fn main() {
     });
 
     // If we have a runtime adapter, connect and start it now
-    if let Some(mut runtime_adapter) = data_source_runtime_adapter {
+    if let Some(ref mut runtime_adapter) = data_source_runtime_adapter {
         // TODO Connect the adapter to the store
         let runtime_stream = runtime_adapter.event_stream().unwrap();
         let logger = logger.clone();
@@ -179,4 +185,9 @@ fn main() {
         .serve()
         .expect("Failed to start GraphQL server");
     core.run(http_server).unwrap();
+
+    // Stop the runtime adapter
+    if let Some(ref mut runtime_adapter) = data_source_runtime_adapter {
+        runtime_adapter.stop();
+    }
 }
