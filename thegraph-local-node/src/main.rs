@@ -8,6 +8,7 @@ extern crate thegraph;
 extern crate thegraph_core;
 extern crate thegraph_hyper;
 extern crate thegraph_mock;
+extern crate thegraph_runtime_nodejs;
 extern crate thegraph_store_postgres_diesel;
 extern crate tokio;
 extern crate tokio_core;
@@ -19,6 +20,7 @@ use thegraph::prelude::*;
 use thegraph::util::log::logger;
 use thegraph_hyper::GraphQLServer as HyperGraphQLServer;
 use thegraph_mock as mock;
+use thegraph_runtime_nodejs::{RuntimeAdapter as NodeRuntimeAdapter, RuntimeAdapterConfig};
 use thegraph_store_postgres_diesel::{Store as DieselStore, StoreConfig};
 use tokio::prelude::*;
 use tokio_core::reactor::Core;
@@ -33,6 +35,22 @@ fn main() {
         .author("Graph Protocol, Inc.")
         .about("Scalable queries for a decentralized future (local node)")
         .arg(
+            Arg::with_name("data-source-definition")
+                .takes_value(true)
+                .required(false)
+                .long("data-source-definition")
+                .value_name("FILE")
+                .help("Path to the data source definition file"),
+        )
+        .arg(
+            Arg::with_name("data-source-runtime")
+                .takes_value(true)
+                .required(false)
+                .long("data-source-runtime")
+                .value_name("DIR")
+                .help("Path to the data source runtime source directory"),
+        )
+        .arg(
             Arg::with_name("postgres-url")
                 .takes_value(true)
                 .required(true)
@@ -44,6 +62,10 @@ fn main() {
 
     // Safe to unwrap because a value is required by CLI
     let postgres_url = matches.value_of("postgres-url").unwrap().to_string();
+
+    // Obtain data source related command-line arguments
+    let data_source_definition = matches.value_of("data-source-definition");
+    let data_source_runtime = matches.value_of("data-source-runtime");
 
     debug!(logger, "Setting up Sentry");
 
@@ -68,6 +90,24 @@ fn main() {
     let mut schema_provider = thegraph_core::SchemaProvider::new(&logger, core.handle());
     let mut store = DieselStore::new(StoreConfig { url: postgres_url }, &logger, core.handle());
     let mut graphql_server = HyperGraphQLServer::new(&logger, core.handle());
+    let data_source_runtime_adapter = match (data_source_definition, data_source_runtime) {
+        (Some(definition), Some(runtime)) => Some(NodeRuntimeAdapter::new(
+            &logger,
+            core.handle(),
+            RuntimeAdapterConfig {
+                data_source_definition: definition.to_string(),
+                runtime_source_dir: runtime.to_string(),
+                json_rpc_url: "0.0.0.0:7545".to_string(),
+            },
+        )),
+        _ => {
+            warn!(
+                logger,
+                "No data source arguments provided. Will not index anything"
+            );
+            None
+        }
+    };
 
     // Forward schema events from the data source provider to the schema provider
     let schema_stream = data_source_provider.schema_event_stream().unwrap();
@@ -115,6 +155,24 @@ fn main() {
             }))
             .and_then(|_| Ok(()))
     });
+
+    // If we have a runtime adapter, connect and start it now
+    if let Some(mut runtime_adapter) = data_source_runtime_adapter {
+        // TODO Connect the adapter to the store
+        let runtime_stream = runtime_adapter.event_stream().unwrap();
+        let logger = logger.clone();
+        core.handle().spawn({
+            runtime_stream
+                .for_each(move |event| {
+                    debug!(logger, "Runtime event"; "event" => format!("{:?}", event));
+                    Ok(())
+                })
+                .and_then(|_| Ok(()))
+        });
+
+        // Start the adapter
+        runtime_adapter.start();
+    }
 
     // Serve GraphQL server over HTTP
     let http_server = graphql_server
