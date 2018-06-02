@@ -23,7 +23,7 @@ function set_up {
     createdb test
 
     # Export a URL to the test database
-    export THEGRAPH_STORE_POSTGRES_DIESEL_URL="postgresql://postgres@127.0.0.1:5432/test"
+    export THEGRAPH_STORE_POSTGRES_DIESEL_URL="postgresql://buildkite:buildkite@127.0.0.1:5432/test"
 }
 
 function tear_down {
