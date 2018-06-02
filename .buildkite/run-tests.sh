@@ -28,7 +28,7 @@ function set_up {
 
 function tear_down {
     # Delete the test database
-    dropdb -h /tmp test
+    dropdb test
 
     ## Stop Postgres
     #pg_ctl -D .postgres stop
