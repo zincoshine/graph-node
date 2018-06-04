@@ -8,16 +8,19 @@ use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use serde_json;
 use slog;
 
+use super::event::RuntimeEvent;
+use super::request::{RuntimeRequest, RuntimeRequestError};
+
 struct RuntimeAdapterService {
     logger: slog::Logger,
-    json_sender: Sender<serde_json::Value>,
+    event_sender: Sender<RuntimeEvent>,
 }
 
 impl RuntimeAdapterService {
-    pub fn new(logger: slog::Logger, json_sender: Sender<serde_json::Value>) -> Self {
+    pub fn new(logger: slog::Logger, event_sender: Sender<RuntimeEvent>) -> Self {
         RuntimeAdapterService {
             logger,
-            json_sender,
+            event_sender,
         }
     }
 }
@@ -25,44 +28,52 @@ impl RuntimeAdapterService {
 impl Service for RuntimeAdapterService {
     type ReqBody = Body;
     type ResBody = Body;
-    type Error = hyper::Error;
-    type Future = Box<Future<Item = Response<Self::ReqBody>, Error = hyper::Error> + Send>;
+    type Error = RuntimeRequestError;
+    type Future = Box<Future<Item = Response<Self::ReqBody>, Error = Self::Error> + Send>;
 
     fn call(&mut self, request: Request<Self::ReqBody>) -> Self::Future {
         let read_logger = self.logger.clone();
         let deserialize_logger = self.logger.clone();
         let send_logger = self.logger.clone();
 
-        let json_sender = self.json_sender.clone();
+        let event_sender = self.event_sender.clone();
 
         match request.method() {
             &Method::POST => Box::new({
                 debug!(self.logger, "Received event from data source runtime");
 
-                let deserialize_logger = self.logger.clone();
+                let logger = self.logger.clone();
 
                 // Read the request body into a single chunk
                 request
                     .into_body()
                     .concat2()
-                    .map(move |body| {
-                        // Deserialize the JSON body and send it to the runtime adapter
-                        serde_json::from_slice(&body)
-                            .map_err(|e| {
-                                error!(deserialize_logger,
-                                       "Failed to deserialize JSON runtime event";
-                                       "error" => format!("{}", e));
-                            })
-                            .map(|json| json_sender.clone().send(json).wait())
+                    .map_err(RuntimeRequestError::from)
+                    .and_then(RuntimeRequest::new)
+                    .and_then(move |event| {
+                        event_sender
+                            .clone()
+                            .send(event)
+                            .map_err(|e| panic!("Failed to forward runtime event: {}", e))
                     })
-                    .and_then(|_| {
-                        // Once we're done with the above, send 200 OK response back
-                        future::ok(
-                            Response::builder()
-                                .status(StatusCode::CREATED)
-                                .body(Body::from("OK"))
-                                .unwrap(),
-                        )
+                    .then(move |result| {
+                        warn!(logger, "Result:"; "result" => format!("{:?}", result));
+
+                        // Once we're done with the above, send a response back
+                        match result {
+                            Ok(_) => future::ok(
+                                Response::builder()
+                                    .status(StatusCode::CREATED)
+                                    .body(Body::from("OK"))
+                                    .unwrap(),
+                            ),
+                            Err(e) => future::ok(
+                                Response::builder()
+                                    .status(StatusCode::BAD_REQUEST)
+                                    .body(Body::from(format!("{}", e)))
+                                    .unwrap(),
+                            ),
+                        }
                     })
             }),
             _ => Box::new(future::ok(
@@ -78,7 +89,7 @@ impl Service for RuntimeAdapterService {
 /// Starts the runtime adpater's HTTP server to handle events from the runtime.
 pub fn start_server(
     logger: slog::Logger,
-    json_sender: Sender<serde_json::Value>,
+    event_sender: Sender<RuntimeEvent>,
     addr: &str,
 ) -> Box<Future<Item = (), Error = ()> + Send> {
     // Parse the server address
@@ -91,7 +102,7 @@ pub fn start_server(
     let new_service = move || {
         future::ok::<RuntimeAdapterService, hyper::Error>(RuntimeAdapterService::new(
             logger.clone(),
-            json_sender.clone(),
+            event_sender.clone(),
         ))
     };
 

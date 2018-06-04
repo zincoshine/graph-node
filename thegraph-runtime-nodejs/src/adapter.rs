@@ -13,7 +13,7 @@ use tokio_core::reactor::Handle;
 
 use thegraph::components::data_sources::RuntimeAdapterEvent;
 use thegraph::components::store::StoreKey;
-use thegraph::prelude::{*, RuntimeAdapter as RuntimeAdapterTrait};
+use thegraph::prelude::{Entity, RuntimeAdapter as RuntimeAdapterTrait, Value, *};
 use thegraph::util::stream::StreamError;
 
 use server;
@@ -89,10 +89,10 @@ impl RuntimeAdapterTrait for RuntimeAdapter {
         // Create a channel to receive JSON updates from the adapter server and
         // start an HTTP server for the runtime to send events to
         debug!(self.logger, "Start adapter server");
-        let (json_sender, json_receiver) = channel(10);
+        let (runtime_event_sender, runtime_event_receiver) = channel(10);
         self.runtime.spawn(server::start_server(
             self.logger.clone(),
-            json_sender,
+            runtime_event_sender,
             "127.0.0.1:7500",
         ));
 
@@ -115,60 +115,61 @@ impl RuntimeAdapterTrait for RuntimeAdapter {
             .unwrap()
             .clone()
             .expect("Node.js runtime adapter started without being connected");
-        self.runtime
-            .spawn(json_receiver.for_each(move |json: serde_json::Value| {
-                info!(receiver_logger, "Handle runtime event"; "json" => format!("{}", json));
+        self.runtime.spawn(
+            runtime_event_receiver
+                .for_each(move |runtime_event| {
+                    info!(receiver_logger, "Handle runtime event";
+                      "event" => format!("{:?}", runtime_event));
 
-                let event_data = json.as_object()
-                    .expect("Runtime event data is not an object");
+                    let entity_id = match runtime_event.data.get("id") {
+                        Some(Value::String(ref s)) => Some(s.to_owned()),
+                        _ => None,
+                    };
 
-                // Extract entity name
-                let entity = event_data
-                    .get("entity")
-                    .expect("Runtime event data lacks an \"entity\" field")
-                    .as_str()
-                    .expect("Runtime event: \"entity\" event is not a string");
+                    // Skip the event if the entity ID is missing or not a string
+                    if entity_id == None {
+                        error!(receiver_logger,
+                           "Field [\"data\", \"id\"] missing or invalid in runtime event";
+                           "event" => format!("{:?}", runtime_event));
+                        return Err(());
+                    }
 
-                // Extract operation name
-                let operation = event_data
-                    .get("operation")
-                    .expect("Runtime event data lacks an \"operation\" field")
-                    .as_str()
-                    .expect("Runtime event: \"operation\" is not a string");
+                    let event = match runtime_event.operation.as_str() {
+                        "add" => RuntimeAdapterEvent::EntityAdded(
+                            "memefactory".to_string(),
+                            StoreKey {
+                                entity: runtime_event.entity.to_owned(),
+                                id: entity_id.unwrap(),
+                            },
+                            runtime_event.data,
+                        ),
+                        "update" => RuntimeAdapterEvent::EntityChanged(
+                            "memefactory".to_string(),
+                            StoreKey {
+                                entity: runtime_event.entity.to_owned(),
+                                id: entity_id.unwrap(),
+                            },
+                            runtime_event.data,
+                        ),
+                        "remove" => RuntimeAdapterEvent::EntityRemoved(
+                            "memefactory".to_string(),
+                            StoreKey {
+                                entity: runtime_event.entity.to_owned(),
+                                id: entity_id.unwrap(),
+                            },
+                        ),
+                        _ => unimplemented!("Unknown runtime event operation"),
+                    };
 
-                // Extract entity data
-                let data = event_data
-                    .get("data")
-                    .expect("Runtime event data lacks a \"data\" field");
-
-                // Deserialize entity
-                let entity_data = serde_json::from_value::<Entity>(data.clone())
-                    .expect("Runtime event: Failed to deserialize entity data");
-
-                let event = match operation {
-                    "add" => RuntimeAdapterEvent::EntityAdded(
-                        "memefactory".to_string(),
-                        StoreKey {
-                            entity: entity.to_string(),
-                            id: data.get("id")
-                                .expect("Runtime event: \"data\" lacks an \"id\" field")
-                                .as_str()
-                                .expect("Runtime event: entity \"id\" is not a string")
-                                .to_string(),
-                        },
-                        entity_data,
-                    ),
-                    _ => unimplemented!(),
-                };
-
-                event_sink
-                    .clone()
-                    .send(event)
-                    .map_err(|e| {
-                        panic!("Failed to forward runtime adapter event");
-                    })
-                    .and_then(|_| Ok(()))
-            }));
+                    event_sink
+                        .clone()
+                        .send(event)
+                        .wait()
+                        .expect("Failed to forward runtime adapter event");
+                    Ok(())
+                })
+                .and_then(|_| Ok(())),
+        );
     }
 
     fn stop(&mut self) {
