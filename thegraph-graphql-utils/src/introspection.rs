@@ -103,36 +103,107 @@ pub fn introspection_schema() -> s::Document {
     graphql_parser::parse_schema(INTROSPECTION_SCHEMA).unwrap()
 }
 
+fn resolve_parent_type(
+    schema: &s::Document,
+    field: &'static str,
+    parent_value: &Option<q::Value>,
+) -> Option<(&q::Name, &s::TypeDefinition)> {
+    parent_value
+        .and_then(|value| match value {
+            Some(q::Value::Object(values)) => Some(values),
+            _ => None,
+        })
+        .and_then(|values| values.get(field))
+        .and_then(|name| match sast::get_named_type(schema, name) {
+            Some(typedef) => Some((name, typedef)),
+            _ => None,
+        })
+        .unwrap_or(None)
+}
+
 pub fn resolve_object_value(
     schema: &s::Document,
     parent_value: &Option<q::Value>,
-    object_type: &s::ObjectType,
     field_name: &q::Name,
+    type_name: &q::Name,
+    object_type: &s::ObjectType,
     _arguments: &HashMap<&q::Name, q::Value>,
 ) -> q::Value {
-    match object_type.name.as_str() {
-        "__Schema" => schema_object(schema),
-        "__Type" => parent_value
-            .as_ref()
-            .and_then(|value| match value {
-                q::Value::Object(o) => Some(o),
+    println!("Resolve object value: {}, {}", field_name, type_name);
+    println!("  Parent value: {:#?}", parent_value);
+
+    match (field_name.as_str(), type_name.as_str()) {
+        (_, "__Schema") => schema_object(schema),
+        ("queryType", "__Type") => query_type(schema),
+        ("mutationType", "__Type") => q::Value::Null,
+        ("type", "__Type") => {
+            // TODO
+            q::Value::Null
+        }
+        _ => unimplemented!(),
+    }
+}
+
+pub fn resolve_object_values(
+    schema: &s::Document,
+    parent_value: &Option<q::Value>,
+    field_name: &q::Name,
+    type_name: &q::Name,
+    object_type: &s::ObjectType,
+    _arguments: &HashMap<&q::Name, q::Value>,
+) -> q::Value {
+    println!("Resolve object values: {}, {}", field_name, type_name);
+    println!("  Parent value: {:#?}", parent_value);
+
+    match (field_name.as_str(), type_name.as_str()) {
+        ("types", "__Type") => schema_types(schema),
+        ("fields", "__Field") => match resolve_parent_type(schema, parent_value, "name") {
+            Some((name, s::TypeDefinition::Object(ot))) => field_objects(schema, name, &ot.fields),
+            _ => q::Value::Null,
+        },
+        ("inputFields", "__InputValue") => q::Value::Null,
+        ("interfaces", "__Type") => q::Value::Null,
+        ("enumValues", "__EnumValue") => q::Value::Null,
+        ("possibleTypes", "__Type") => q::Value::Null,
+        ("args", "__InputValue") => {
+            let parent_type = resolve_parent_type(schema, parent_value, "_parentTypeName");
+            let field_name = match parent_value {
+                q::Value::Object(ref values) => match values.get("name") {
+                    Some(q::Value::String(ref name)) => Some(name),
+                    _ => None,
+                },
                 _ => None,
-            })
-            .map(|o| match o.get(field_name) {
-                Some(v) => v.clone(),
-                None => q::Value::Null,
-            })
-            .unwrap_or(q::Value::Null),
-        _ => unimplemented!("Resolving object value is only implemented for __Schema and __Type"),
+            };
+
+            match (parent_type_name, field_name) {
+                (Some(parent_type_name), Some(field_name)) => {
+                    match sast::get_named_type(schema, parent_type_name) {
+                        Some(s::TypeDefinition::Object(ot)) => {
+                            match sast::get_field_type(ot, field_name) {
+                                Some(field) => input_values(schema, &field.arguments),
+                                _ => q::Value::Null,
+                            }
+                        }
+                        _ => q::Value::Null,
+                    }
+                }
+                _ => q::Value::Null,
+            }
+        }
+        _ => unimplemented!(),
     }
 }
 
 fn schema_object(schema: &s::Document) -> q::Value {
     object_value(vec![
-        ("queryType", query_type(schema)),
+        ("queryType", q::Value::Null),
         ("mutationType", q::Value::Null),
-        ("types", schema_types(schema)),
-        ("directives", schema_directives(schema)),
+        ("types", q::Value::Null),
+        ("directives", q::Value::Null),
+        // ("queryType", query_type(schema)),
+        // ("mutationType", q::Value::Null),
+        // ("types", (schema_types(schema)),
+        // ("directives", schema_directives(schema)),
     ])
 }
 
@@ -224,8 +295,8 @@ fn object_type_object(schema: &s::Document, object_type: &s::ObjectType) -> q::V
                 None => q::Value::Null,
             },
         ),
-        ("fields", field_objects(schema, &object_type.fields)),
-        ("interfaces", object_interfaces(schema, object_type)),
+        ("fields", q::Value::Null),
+        ("interfaces", q::Value::Null),
     ])
 }
 
@@ -243,15 +314,19 @@ fn object_type_object_without_interfaces(
                 None => q::Value::Null,
             },
         ),
-        ("fields", field_objects(schema, &object_type.fields)),
+        ("fields", q::Value::Null),
     ])
 }
 
-fn field_objects(schema: &s::Document, fields: &Vec<s::Field>) -> q::Value {
+fn field_objects(
+    schema: &s::Document,
+    parent_type_name: &q::Name,
+    fields: &Vec<s::Field>,
+) -> q::Value {
     q::Value::List(
         fields
             .into_iter()
-            .map(|field| field_object(schema, field))
+            .map(|field| field_object(schema, parent_type_name, field))
             .collect(),
     )
 }
@@ -266,8 +341,12 @@ fn object_interfaces(schema: &s::Document, object_type: &s::ObjectType) -> q::Va
     )
 }
 
-fn field_object(schema: &s::Document, field: &s::Field) -> q::Value {
+fn field_object(schema: &s::Document, parent_type_name: &q::Name, field: &s::Field) -> q::Value {
     object_value(vec![
+        (
+            "_parentTypeName",
+            q::Value::String(parent_type_name.to_owned()),
+        ),
         ("name", q::Value::String(field.name.to_owned())),
         (
             "description",
@@ -276,8 +355,8 @@ fn field_object(schema: &s::Document, field: &s::Field) -> q::Value {
                 None => q::Value::Null,
             },
         ),
-        ("args", input_values(schema, &field.arguments)),
-        ("type", type_object(schema, &field.field_type)),
+        ("args", q::Value::Null),
+        ("type", q::Value::Null),
         ("isDeprecated", q::Value::Boolean(false)),
         ("deprecationReason", q::Value::Null),
     ])
@@ -324,7 +403,7 @@ fn enum_type_object(enum_type: &s::EnumType) -> q::Value {
                 None => q::Value::Null,
             },
         ),
-        ("enumValues", enum_values(enum_type)),
+        ("enumValues", q::Value::Null),
     ])
 }
 
@@ -374,11 +453,8 @@ fn interface_type_object(schema: &s::Document, interface_type: &s::InterfaceType
                 None => q::Value::Null,
             },
         ),
-        ("fields", field_objects(schema, &interface_type.fields)),
-        (
-            "possibleTypes",
-            possible_types_for_interface(schema, &interface_type),
-        ),
+        ("fields", q::Value::Null),
+        ("possibleTypes", q::Value::Null),
     ])
 }
 
@@ -420,10 +496,7 @@ fn input_object_type_object(
                 None => q::Value::Null,
             },
         ),
-        (
-            "inputFields",
-            input_values(schema, &input_object_type.fields),
-        ),
+        ("inputFields", q::Value::Null),
     ])
 }
 

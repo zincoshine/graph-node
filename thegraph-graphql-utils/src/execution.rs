@@ -338,6 +338,8 @@ fn execute_field<'a, R>(
 where
     R: Resolver,
 {
+    println!("Execute field: {}", field.name);
+
     coerce_argument_values(ctx.clone(), object_type, field)
         .and_then(|argument_values| {
             resolve_field_value(
@@ -348,6 +350,10 @@ where
                 field_type,
                 &argument_values,
             )
+        })
+        .map(|value| {
+            println!("  Resolved value: {:#?}", value);
+            value
         })
         .and_then(|value| complete_value(ctx, field, field_type, fields, value))
 }
@@ -364,15 +370,21 @@ fn resolve_field_value<'a, R>(
 where
     R: Resolver,
 {
+    println!("Resolve field value: {}", field.name);
+
     match field_type {
-        s::Type::NonNullType(inner_type) => resolve_field_value(
-            ctx,
-            object_type,
-            object_value,
-            field,
-            inner_type.as_ref(),
-            argument_values,
-        ),
+        s::Type::NonNullType(inner_type) => {
+            println!("Resolve field value for non-null type");
+
+            resolve_field_value(
+                ctx,
+                object_type,
+                object_value,
+                field,
+                inner_type.as_ref(),
+                argument_values,
+            )
+        }
 
         s::Type::NamedType(ref name) => {
             resolve_field_value_for_named_type(ctx, object_value, field, name, argument_values)
@@ -401,6 +413,11 @@ fn resolve_field_value_for_named_type<'a, R>(
 where
     R: Resolver,
 {
+    println!(
+        "Resolve field value for named type: {}, {}",
+        field.name, type_name
+    );
+
     // Try to resolve the type name into the actual type
     let named_type = sast::get_named_type(
         if ctx.introspecting {
@@ -416,8 +433,9 @@ where
             s::TypeDefinition::Object(t) => Ok(introspection::resolve_object_value(
                 &ctx.schema.document,
                 object_value,
-                t,
                 &field.name,
+                type_name,
+                t,
                 argument_values,
             )),
             s::TypeDefinition::Enum(_) => match object_value {
@@ -488,6 +506,8 @@ fn resolve_field_value_for_list_type<'a, R>(
 where
     R: Resolver,
 {
+    println!("Resolve field value for list type: {}", field.name);
+
     match inner_type {
         s::Type::NonNullType(inner_type) => resolve_field_value_for_list_type(
             ctx,
@@ -509,15 +529,20 @@ where
                 type_name,
             ).expect("Failed to resolve named type inside list type");
 
+            println!("Named type: {}", type_name);
+
             if ctx.introspecting {
                 match named_type {
-                    s::TypeDefinition::Object(_) => match object_value {
-                        Some(q::Value::Object(o)) => Ok(match o.get(&field.name) {
-                            Some(v) => v.clone(),
-                            _ => q::Value::Null,
-                        }),
-                        _ => Ok(q::Value::Null),
-                    },
+                    s::TypeDefinition::Object(object_type) => {
+                        Ok(introspection::resolve_object_values(
+                            &ctx.schema.document,
+                            object_value,
+                            &field.name,
+                            type_name,
+                            object_type,
+                            argument_values,
+                        ))
+                    }
 
                     s::TypeDefinition::Enum(_) => match object_value {
                         Some(q::Value::Object(o)) => Ok(match o.get(&field.name) {
