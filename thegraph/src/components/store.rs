@@ -7,7 +7,7 @@ use util::stream::StreamError;
 /// Key by which an individual entity in the store can be accessed.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StoreKey {
-    /// Name of the entity type.
+    /// Changing comments to test buildkite build
     pub entity: String,
 
     /// ID of the individual entity.
