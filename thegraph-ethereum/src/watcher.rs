@@ -4,6 +4,11 @@ use futures::prelude::*;
 use futures::sync::mpsc::{channel, Receiver};
 use parity;
 use std::sync::{Arc, Mutex};
+use jsonrpc_core::types::response::Response;
+use serde;
+use serde_json;
+use serde_json::{Error};
+
 
 use thegraph::components::ethereum::{EthereumWatcher as EthereumWatcherTrait, *};
 
@@ -16,6 +21,17 @@ impl<'a> EthereumWatcher<'a> {
         EthereumWatcher {
             parity_client: parity_client,
         }
+    }
+
+    pub fn block_number(&mut self) -> Result<Response, Error> {
+        let req_number = r#"{
+    		"jsonrpc": "2.0",
+    		"method": "eth_blockNumber",
+    		"params": [],
+    		"id": 1
+    	}"#;
+        let rpcres = self.parity_client.rpc_query_sync(req_number).unwrap();
+        serde_json::from_str(&rpcres)
     }
 }
 
