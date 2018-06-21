@@ -6,6 +6,7 @@ version = "0.1.0"
 clap = "2.31.2"
 futures = "0.1.21"
 graphql-parser = "0.2.1"
+parity = { git = "https://github.com/paritytech/parity.git", tag = "v1.12.0-ci5" }
 sentry = "0.3.1"
 slog = "2.2.3"
 tokio = "0.1.5"

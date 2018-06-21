@@ -1,5 +1,6 @@
 extern crate clap;
 extern crate futures;
+extern crate parity;
 extern crate thegraph_local_node;
 #[macro_use]
 extern crate sentry;
@@ -83,114 +84,134 @@ fn main() {
 
     info!(logger, "Starting up");
 
-    // Create system components
-    let mut data_source_provider =
-        LocalDataSourceProvider::new(&logger, core.handle(), data_source_definition_file.clone());
-    let mut schema_provider = thegraph_core::SchemaProvider::new(&logger, core.handle());
-    let mut store = DieselStore::new(StoreConfig { url: postgres_url }, &logger, core.handle());
-    let mut graphql_server = HyperGraphQLServer::new(&logger, core.handle());
-    let ethereum_watcher = Arc::new(Mutex::new(thegraph_ethereum::EthereumWatcher::new()));
+    // Create parity RunningClient
+    let args: &[&str] = &[];
+    let config = parity::Configuration::parse_cli(&args).unwrap();
+    let execution_action = parity::start(config, move |_| {}, move || {}).unwrap();
+    let parity_client = match execution_action {
+        parity::ExecutionAction::Running(parity_client) => Some(parity_client),
+        _ => None,
+    }.unwrap();
 
-    // Create runtime adapter and connect it to Ethereum
-    let mut data_source_runtime_adapter = WASMRuntimeAdapter::new(
-        &logger,
-        core.handle(),
-        ethereum_watcher.clone(),
-        RuntimeAdapterConfig {
-            data_source_definition: data_source_definition_file.to_string(),
-        },
-    );
+    {
+        // Create system components
+        let mut data_source_provider = LocalDataSourceProvider::new(
+            &logger,
+            core.handle(),
+            data_source_definition_file.clone(),
+        );
+        let mut schema_provider = thegraph_core::SchemaProvider::new(&logger, core.handle());
+        let mut store = DieselStore::new(StoreConfig { url: postgres_url }, &logger, core.handle());
+        let mut graphql_server = HyperGraphQLServer::new(&logger, core.handle());
+        let ethereum_watcher = Arc::new(Mutex::new(thegraph_ethereum::EthereumWatcher::new(
+            &parity_client,
+        )));
 
-    // Forward schema events from the data source provider to the schema provider
-    let schema_stream = data_source_provider.schema_event_stream().unwrap();
-    let schema_sink = schema_provider.event_sink();
-    core.handle().spawn({
-        schema_stream
-            .forward(schema_sink.sink_map_err(|e| {
-                panic!("Failed to send schema event to schema provider: {:?}", e);
-            }))
-            .and_then(|_| Ok(()))
-    });
+        // Create runtime adapter and connect it to Ethereum
+        let mut data_source_runtime_adapter = WASMRuntimeAdapter::new(
+            &logger,
+            core.handle(),
+            ethereum_watcher.clone(),
+            RuntimeAdapterConfig {
+                data_source_definition: data_source_definition_file.to_string(),
+            },
+        );
 
-    // Forward schema events from the schema provider to the store and GraphQL server
-    let schema_stream = schema_provider.take_event_stream().unwrap();
-    core.handle().spawn({
-        schema_stream
-            .forward(
-                store
-                    .schema_provider_event_sink()
-                    .fanout(graphql_server.schema_provider_event_sink())
-                    .sink_map_err(|e| {
-                        panic!("Failed to send event to store and server: {:?}", e);
-                    }),
-            )
-            .and_then(|_| Ok(()))
-    });
+        // Forward schema events from the data source provider to the schema provider
+        let schema_stream = data_source_provider.schema_event_stream().unwrap();
+        let schema_sink = schema_provider.event_sink();
+        core.handle().spawn({
+            schema_stream
+                .forward(schema_sink.sink_map_err(|e| {
+                    panic!("Failed to send schema event to schema provider: {:?}", e);
+                }))
+                .and_then(|_| Ok(()))
+        });
 
-    // Forward store events to the GraphQL server
-    let store_stream = store.event_stream().unwrap();
-    core.handle().spawn({
-        store_stream
-            .forward(graphql_server.store_event_sink().sink_map_err(|e| {
-                panic!("Failed to send store event to the GraphQL server: {:?}", e);
-            }))
-            .and_then(|_| Ok(()))
-    });
+        // Forward schema events from the schema provider to the store and GraphQL server
+        let schema_stream = schema_provider.take_event_stream().unwrap();
+        core.handle().spawn({
+            schema_stream
+                .forward(
+                    store
+                        .schema_provider_event_sink()
+                        .fanout(graphql_server.schema_provider_event_sink())
+                        .sink_map_err(|e| {
+                            panic!("Failed to send event to store and server: {:?}", e);
+                        }),
+                )
+                .and_then(|_| Ok(()))
+        });
 
-    // Obtain a protected version of the store
-    let protected_store = Arc::new(Mutex::new(store));
+        // Forward store events to the GraphQL server
+        let store_stream = store.event_stream().unwrap();
+        core.handle().spawn({
+            store_stream
+                .forward(graphql_server.store_event_sink().sink_map_err(|e| {
+                    panic!("Failed to send store event to the GraphQL server: {:?}", e);
+                }))
+                .and_then(|_| Ok(()))
+        });
 
-    // Forward incoming queries from the GraphQL server to the query runner
-    let mut query_runner =
-        thegraph_core::QueryRunner::new(&logger, core.handle(), protected_store.clone());
-    let query_stream = graphql_server.query_stream().unwrap();
-    core.handle().spawn({
-        query_stream
-            .forward(query_runner.query_sink().sink_map_err(|e| {
-                panic!("Failed to send query to query runner: {:?}", e);
-            }))
-            .and_then(|_| Ok(()))
-    });
+        // Obtain a protected version of the store
+        let protected_store = Arc::new(Mutex::new(store));
 
-    // Connect the runtime adapter to the store
-    core.handle().spawn({
-        data_source_runtime_adapter
-            .event_stream()
-            .unwrap()
-            .for_each(move |event| {
-                let mut store = protected_store.lock().unwrap();
+        // Forward incoming queries from the GraphQL server to the query runner
+        let mut query_runner =
+            thegraph_core::QueryRunner::new(&logger, core.handle(), protected_store.clone());
+        let query_stream = graphql_server.query_stream().unwrap();
+        core.handle().spawn({
+            query_stream
+                .forward(query_runner.query_sink().sink_map_err(|e| {
+                    panic!("Failed to send query to query runner: {:?}", e);
+                }))
+                .and_then(|_| Ok(()))
+        });
 
-                match event {
-                    RuntimeAdapterEvent::EntityAdded(_, k, entity) => {
-                        store
-                            .set(k, entity)
-                            .expect("Failed to set entity in the store");
-                    }
-                    RuntimeAdapterEvent::EntityChanged(_, k, entity) => {
-                        store
-                            .set(k, entity)
-                            .expect("Failed to set entity in the store");
-                    }
-                    RuntimeAdapterEvent::EntityRemoved(_, k) => {
-                        store
-                            .delete(k)
-                            .expect("Failed to remove entity from the store");
-                    }
-                };
-                Ok(())
-            })
-            .and_then(|_| Ok(()))
-    });
+        // Connect the runtime adapter to the store
+        core.handle().spawn({
+            data_source_runtime_adapter
+                .event_stream()
+                .unwrap()
+                .for_each(move |event| {
+                    let mut store = protected_store.lock().unwrap();
 
-    // Start the runtime adapter
-    data_source_runtime_adapter.start();
+                    match event {
+                        RuntimeAdapterEvent::EntityAdded(_, k, entity) => {
+                            store
+                                .set(k, entity)
+                                .expect("Failed to set entity in the store");
+                        }
+                        RuntimeAdapterEvent::EntityChanged(_, k, entity) => {
+                            store
+                                .set(k, entity)
+                                .expect("Failed to set entity in the store");
+                        }
+                        RuntimeAdapterEvent::EntityRemoved(_, k) => {
+                            store
+                                .delete(k)
+                                .expect("Failed to remove entity from the store");
+                        }
+                    };
+                    Ok(())
+                })
+                .and_then(|_| Ok(()))
+        });
 
-    // Serve GraphQL server over HTTP
-    let http_server = graphql_server
-        .serve()
-        .expect("Failed to start GraphQL server");
-    core.run(http_server).unwrap();
+        // Start the runtime adapter
+        data_source_runtime_adapter.start();
+
+        // Serve GraphQL server over HTTP
+        let http_server = graphql_server
+            .serve()
+            .expect("Failed to start GraphQL server");
+        core.run(http_server).unwrap();
+    }
 
     // Stop the runtime adapter
     data_source_runtime_adapter.stop();
+
+    // Stop the parity RunningClient
+    drop(ethereum_watcher);
+    parity_client.shutdown();
 }

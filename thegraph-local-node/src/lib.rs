@@ -1,5 +1,6 @@
 extern crate futures;
 extern crate graphql_parser;
+extern crate parity;
 #[macro_use]
 extern crate slog;
 extern crate thegraph;

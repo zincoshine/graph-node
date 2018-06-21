@@ -5,5 +5,6 @@ version = "0.1.0"
 [dependencies]
 ethereum-types = "0.3"
 futures = "0.1.21"
+parity = { git = "https://github.com/paritytech/parity.git", tag = "v1.12.0-ci5" }
 thegraph = { path = "../thegraph" }
 tokio-core = "0.1.6"
