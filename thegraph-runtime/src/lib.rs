@@ -7,6 +7,6 @@ extern crate tokio_core;
 extern crate wasmi;
 
 mod host;
-mod interpreter;
+mod module;
 
 pub use self::host::{RuntimeHost, RuntimeHostConfig};
