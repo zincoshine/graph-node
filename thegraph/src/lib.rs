@@ -32,7 +32,7 @@ pub mod util;
 pub mod prelude {
     pub use components::data_sources::{DataSourceDefinitionLoader, DataSourceProvider,
                                        RuntimeAdapter};
-    pub use components::ethereum::EthereumWatcher;
+    pub use components::ethereum::EthereumAdapter;
     pub use components::query::QueryRunner;
     pub use components::schema::SchemaProvider;
     pub use components::server::GraphQLServer;

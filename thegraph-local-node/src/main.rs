@@ -89,13 +89,21 @@ fn main() {
     let mut schema_provider = thegraph_core::SchemaProvider::new(&logger, core.handle());
     let mut store = DieselStore::new(StoreConfig { url: postgres_url }, &logger, core.handle());
     let mut graphql_server = HyperGraphQLServer::new(&logger, core.handle());
-    let ethereum_watcher = Arc::new(Mutex::new(thegraph_ethereum::EthereumWatcher::new()));
+    let ethereum_watcher = thegraph_ethereum::EthereumAdapter::new(
+        thegraph_ethereum::EthereumAdapterConfig {
+            transport: thegraph_ethereum::transports::ipc::Ipc::with_event_loop(
+                &"insert_ipc_path_here"[..],
+                &core.handle(),
+            ).unwrap(),
+        },
+        core.handle(),
+    );
 
     // Create runtime adapter and connect it to Ethereum
     let mut data_source_runtime_adapter = WASMRuntimeAdapter::new(
         &logger,
         core.handle(),
-        ethereum_watcher.clone(),
+        ethereum_watcher,
         RuntimeAdapterConfig {
             data_source_definition: data_source_definition_file.to_string(),
         },

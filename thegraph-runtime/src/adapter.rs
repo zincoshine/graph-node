@@ -15,23 +15,23 @@ pub struct RuntimeAdapterConfig {
 
 pub struct RuntimeAdapter<T>
 where
-    T: EthereumWatcher,
+    T: EthereumAdapter,
 {
     _config: RuntimeAdapterConfig,
     _runtime: Handle,
     logger: slog::Logger,
     event_sink: Arc<Mutex<Option<Sender<RuntimeAdapterEvent>>>>,
-    ethereum_watcher: Arc<Mutex<T>>,
+    ethereum_watcher: T,
 }
 
 impl<T> RuntimeAdapter<T>
 where
-    T: EthereumWatcher,
+    T: EthereumAdapter,
 {
     pub fn new(
         logger: &slog::Logger,
         runtime: Handle,
-        ethereum_watcher: Arc<Mutex<T>>,
+        ethereum_watcher: T,
         config: RuntimeAdapterConfig,
     ) -> Self {
         RuntimeAdapter {
@@ -46,7 +46,7 @@ where
 
 impl<T> RuntimeAdapterTrait for RuntimeAdapter<T>
 where
-    T: EthereumWatcher,
+    T: EthereumAdapter,
 {
     fn start(&mut self) {
         info!(self.logger, "Start");
