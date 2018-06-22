@@ -6,7 +6,7 @@ extern crate thegraph;
 extern crate tokio_core;
 extern crate wasmi;
 
-mod adapter;
+mod host;
 mod interpreter;
 
-pub use self::adapter::{RuntimeAdapter, RuntimeAdapterConfig};
+pub use self::host::{RuntimeHost, RuntimeHostConfig};
