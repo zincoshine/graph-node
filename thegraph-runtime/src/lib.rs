@@ -3,6 +3,7 @@ extern crate futures;
 extern crate slog;
 extern crate parity_wasm;
 extern crate thegraph;
+extern crate thegraph_store_postgres_diesel;
 extern crate tokio_core;
 extern crate wasmi;
 

@@ -9,3 +9,4 @@ tokio-core = "0.1.6"
 thegraph = { path = "../thegraph" }
 parity-wasm = "0.27.0"
 wasmi = "0.2.0"
+thegraph-store-postgres-diesel = { path = "../thegraph-store-postgres-diesel" }
