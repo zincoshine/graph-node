@@ -1,3 +1,4 @@
+use futures::stream::iter_ok;
 use ethereum_types::{Address, H256};
 use futures::future;
 use futures::prelude::*;
@@ -12,6 +13,7 @@ use web3::transports;
 use web3::types::Log;
 use web3::types::{BlockNumber, Filter, FilterBuilder};
 use web3::types::{Bytes, U256};
+use web3::error::{Error as Web3Error};
 
 use thegraph::components::ethereum::{EthereumAdapter as EthereumAdapterTrait, *};
 
@@ -73,7 +75,7 @@ impl<T: web3::Transport> EthereumAdapter<T> {
     // }
 }
 
-impl<T: web3::Transport> EthereumAdapterTrait for EthereumAdapter<T> {
+impl<T: 'static +  web3::Transport> EthereumAdapterTrait for EthereumAdapter<T> {
     fn contract_state(
         &mut self,
         request: EthereumContractStateRequest,
@@ -88,13 +90,26 @@ impl<T: web3::Transport> EthereumAdapterTrait for EthereumAdapter<T> {
     fn subscribe_to_event(
         &mut self,
         subscription: EthereumEventSubscription,
-    ) -> Receiver<EthereumEvent> {
-        // let create_filter = self.event_filter();
-        // let base_filter = create_filter.wait().unwrap();
-        // let call_result = base_filter.logs();
-        // let logs = call_result.wait().unwrap();
-        let (sender, receiver) = channel(100);
-        receiver
+    ) -> Box<Stream<Item=EthereumEvent,Error=Web3Error>> {
+        Box::new(
+            self.event_filter(subscription)
+            .map(|base_filter| {
+                let past_logs_stream = base_filter
+                    .logs()
+                    .map(|logs_vec| iter_ok::<_, web3::error::Error>(logs_vec))
+                    .flatten_stream();
+                let future_logs_stream = base_filter.stream(Duration::from_millis(2000));
+                past_logs_stream.chain(future_logs_stream)
+            })
+            .flatten_stream()
+            .map(|log| {
+                EthereumEvent {
+                    address: log.address,
+                    event_signature: log.topics[0],
+                    block_hash: log.block_hash.unwrap()
+                }
+            })
+        )
     }
 
     fn unsubscribe_from_event(&mut self, unique_id: String) -> bool {

@@ -33,7 +33,7 @@ mod tests {
     #[test]
     fn new_ethereum_ipc_adapter() {
         let mut core = Core::new().unwrap();
-        let result = transports::ipc::Ipc::new(&"/Users/brandon/Library/Application Support/io.parity.ethereum/jsonrpc.ipc"[..])
+        let result = transports::ipc::Ipc::new(&"/Users/aklempner/Library/Application Support/io.parity.ethereum/jsonrpc.ipc"[..])
             // eloop needs to be threaded through, because if the handle is dropped
             // then rust-web3 futures will stop working.
             .map(|(eloop, transport)| {
@@ -78,7 +78,7 @@ mod tests {
     fn event_logs() {
         let mut core = Core::new().unwrap();
         let tranport_result = transports::ipc::Ipc::with_event_loop(
-            &"/Users/brandon/Library/Application Support/io.parity.ethereum/jsonrpc.ipc"[..],
+            &"/Users/aklempner/Library/Application Support/io.parity.ethereum/jsonrpc.ipc"[..],
             &core.handle(),
         );
         let transport = tranport_result.unwrap();
