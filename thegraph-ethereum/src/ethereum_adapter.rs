@@ -1,3 +1,6 @@
+use web3::types::Log;
+use web3::api::CreateFilter;
+use web3::types::{Filter, FilterBuilder, BlockNumber};
 use ethereum_types::{Address, H256};
 use futures::future;
 use futures::prelude::*;
@@ -7,7 +10,8 @@ use web3;
 use web3::api::Web3;
 use web3::helpers::CallResult;
 use web3::transports;
-use web3::types::U256;
+use web3::types::{U256, Bytes};
+use std::time::Duration;
 
 use thegraph::components::ethereum::{EthereumAdapter as EthereumAdapterTrait, *};
 
@@ -41,6 +45,32 @@ impl<T: web3::Transport> EthereumAdapter<T> {
     pub fn block_number(&self) -> CallResult<U256, T::Out> {
         self.eth_client.eth().block_number()
     }
+
+    pub fn sha3(&self, data: &str) -> CallResult<H256, T::Out> {
+        self.eth_client.web3().sha3(Bytes::from(data))
+    }
+
+    pub fn event_filter(&self, subscription: EthereumEventSubscription) -> CreateFilter<T, Log> {
+        let filter_builder = FilterBuilder::default();
+        let eth_filter: Filter = filter_builder
+            .from_block(BlockNumber::Number(subscription.range.from.unwrap()))
+            // .to_block(BlockNumber::Number(subscription.range.to.unwrap()))
+            .to_block(BlockNumber::Latest)
+            .topics(Some(vec!(subscription.event_signature)), None, None, None)
+            .build();
+        self.eth_client.eth_filter().create_logs_filter(eth_filter)
+    }
+
+    // pub fn event_filter(&self) -> CreateFilter<T, Log> {
+    //     let filter_builder = FilterBuilder::default();
+    //     let topic = H256::from("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+    //     let eth_filter: Filter = filter_builder
+    //         .from_block(BlockNumber::Number(7768000))
+    //         .to_block(BlockNumber::Latest)
+    //         .topics(Some(vec!(topic)), None, None, None)
+    //         .build();
+    //     self.eth_client.eth_filter().create_logs_filter(eth_filter)
+    // }
 }
 
 impl<T: web3::Transport> EthereumAdapterTrait for EthereumAdapter<T> {
@@ -59,6 +89,10 @@ impl<T: web3::Transport> EthereumAdapterTrait for EthereumAdapter<T> {
         &mut self,
         subscription: EthereumEventSubscription,
     ) -> Receiver<EthereumEvent> {
+        // let create_filter = self.event_filter();
+        // let base_filter = create_filter.wait().unwrap();
+        // let call_result = base_filter.logs();
+        // let logs = call_result.wait().unwrap();
         let (sender, receiver) = channel(100);
         receiver
     }
