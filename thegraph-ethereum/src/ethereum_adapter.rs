@@ -1,17 +1,17 @@
-use web3::types::Log;
-use web3::api::CreateFilter;
-use web3::types::{Filter, FilterBuilder, BlockNumber};
 use ethereum_types::{Address, H256};
 use futures::future;
 use futures::prelude::*;
 use futures::sync::mpsc::{channel, Receiver};
+use std::time::Duration;
 use tokio_core::reactor::Handle;
 use web3;
+use web3::api::CreateFilter;
 use web3::api::Web3;
 use web3::helpers::CallResult;
 use web3::transports;
-use web3::types::{U256, Bytes};
-use std::time::Duration;
+use web3::types::Log;
+use web3::types::{BlockNumber, Filter, FilterBuilder};
+use web3::types::{Bytes, U256};
 
 use thegraph::components::ethereum::{EthereumAdapter as EthereumAdapterTrait, *};
 
