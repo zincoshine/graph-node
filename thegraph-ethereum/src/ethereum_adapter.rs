@@ -1,3 +1,4 @@
+use ethabi::RawLog;
 use futures::prelude::*;
 use futures::stream::iter_ok;
 use std::time::Duration;
@@ -62,6 +63,7 @@ impl<T: 'static + web3::Transport> EthereumAdapterTrait for EthereumAdapter<T> {
         &mut self,
         subscription: EthereumEventSubscription,
     ) -> Box<Stream<Item = EthereumEvent, Error = Web3Error>> {
+        let event = subscription.event.clone();
         Box::new(
             self.event_filter(subscription)
                 .map(|base_filter| {
@@ -73,10 +75,17 @@ impl<T: 'static + web3::Transport> EthereumAdapterTrait for EthereumAdapter<T> {
                     past_logs_stream.chain(future_logs_stream)
                 })
                 .flatten_stream()
-                .map(|log| EthereumEvent {
+                .map(move |log| EthereumEvent {
                     address: log.address,
                     event_signature: log.topics[0],
                     block_hash: log.block_hash.unwrap(),
+                    params: event
+                        .parse_log(RawLog {
+                            topics: log.topics.clone(),
+                            data: log.data.0,
+                        })
+                        .unwrap()
+                        .params,
                 }),
         )
     }
