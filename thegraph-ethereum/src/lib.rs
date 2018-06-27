@@ -1,4 +1,3 @@
-extern crate ethereum_types;
 extern crate futures;
 extern crate serde_json;
 extern crate thegraph;
@@ -13,23 +12,15 @@ pub use web3::transports;
 
 #[cfg(test)]
 mod tests {
-    use thegraph::prelude::{EthereumAdapter as EthereumAdapterTrait};
     use ethereum_adapter::{EthereumAdapter, EthereumAdapterConfig};
-    use ethereum_types::{Address, H256};
-    use std::error::Error;
-    use std::result::Result;
-    use std::sync::Arc;
-    use std::time::Duration;
     use thegraph::components::ethereum::{BlockNumberRange, EthereumEventSubscription};
+    use thegraph::prelude::EthereumAdapter as EthereumAdapterTrait;
     use tokio_core::reactor::Core;
     use web3;
-    use web3::api::{FilterStream, Web3};
     use web3::futures::future;
-    use web3::futures::stream::{iter_ok, IterResult};
     use web3::futures::{Future, Stream};
     use web3::transports;
-    use web3::types::Bytes;
-    // use futures::stream::Stream;
+    use web3::types::*;
 
     #[test]
     fn new_ethereum_ipc_adapter() {
@@ -89,22 +80,24 @@ mod tests {
             },
             core.handle(),
         );
-        let transfer_topic_work = adapter.sha3("Transfer(address,address,uint256)");
-        let transfer_topic = core.run(transfer_topic_work).unwrap();
-        let subscription = EthereumEventSubscription {
-            subscription_id: String::from("1"),
-            address: Address::zero(),
-            event_signature: transfer_topic,
-            range: BlockNumberRange {
-                from: Some(7781365),
-                to: Some(7781365),
-            },
-        };
-        let work = adapter.subscribe_to_event(subscription)
-        .for_each(|log| {
-            println!("EthereumEvent.address {:?}", log.address);
-            future::ok::<(), web3::error::Error>(())
-        });
+        let work = adapter
+            .sha3("Transfer(address,address,uint256)")
+            .join(adapter.block_number())
+            .and_then(|(transfer_topic, block_number)| {
+                let sub = EthereumEventSubscription {
+                    subscription_id: String::from("1"),
+                    address: Address::zero(),
+                    event_signature: transfer_topic,
+                    range: BlockNumberRange {
+                        from: BlockNumber::Number(block_number.as_u64()),
+                        to: BlockNumber::Latest,
+                    },
+                };
+                adapter.subscribe_to_event(sub).for_each(|log| {
+                    println!("EthereumEvent.address {:?}", log.address);
+                    future::ok::<(), web3::error::Error>(())
+                })
+            });
         core.run(work);
     }
 }
