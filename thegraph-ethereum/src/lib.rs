@@ -93,7 +93,7 @@ mod tests {
                         to: BlockNumber::Latest,
                     },
                 };
-                adapter.subscribe_to_event(sub).for_each(|log| {
+                adapter.subscribe_to_event(sub).take(3).for_each(|log| {
                     println!("EthereumEvent.address {:?}", log.address);
                     future::ok::<(), web3::error::Error>(())
                 })
