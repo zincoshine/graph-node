@@ -13,6 +13,7 @@ pub use web3::transports;
 
 #[cfg(test)]
 mod tests {
+    use thegraph::prelude::{EthereumAdapter as EthereumAdapterTrait};
     use ethereum_adapter::{EthereumAdapter, EthereumAdapterConfig};
     use ethereum_types::{Address, H256};
     use std::error::Error;
@@ -82,7 +83,7 @@ mod tests {
             &core.handle(),
         );
         let transport = tranport_result.unwrap();
-        let adapter = EthereumAdapter::new(
+        let mut adapter = EthereumAdapter::new(
             EthereumAdapterConfig {
                 transport: transport,
             },
@@ -90,7 +91,6 @@ mod tests {
         );
         let transfer_topic_work = adapter.sha3("Transfer(address,address,uint256)");
         let transfer_topic = core.run(transfer_topic_work).unwrap();
-        println!("transfer topic {:?}", transfer_topic);
         let subscription = EthereumEventSubscription {
             subscription_id: String::from("1"),
             address: Address::zero(),
@@ -100,33 +100,11 @@ mod tests {
                 to: Some(7781365),
             },
         };
-        let work = adapter
-            .event_filter(subscription)
-            .map(|base_filter| {
-                let past_logs_stream = base_filter
-                    .logs()
-                    .map(|logs_vec| iter_ok::<_, web3::error::Error>(logs_vec))
-                    .flatten_stream();
-                let future_logs_stream = base_filter.stream(Duration::from_millis(2000));
-                past_logs_stream.chain(future_logs_stream)
-            })
-            .flatten_stream()
-            .for_each(|log_event| {
-                println!("{:?}", log_event);
-                Result::Ok(())
-            });
-
-        // let stream = base_filter.stream(Duration::from_millis(20));
-        // .flatten_stream();
-        // .for_each(|log_event| {
-        //     println!("{:?}", log_event);
-        //     future::ok::<(), web3::error::Error>(());
-        // });
-
-        // let logs_vector_call = base_filter.logs();
-        // let logs_vector = core.run(logs_vector_call).unwrap();
-        // println!("logs_vector {:?}", logs_vector);
-        // let map = logs_vector.iter().for_each(|log| println!("{:?}", log));
+        let work = adapter.subscribe_to_event(subscription)
+        .for_each(|log| {
+            println!("EthereumEvent.address {:?}", log.address);
+            future::ok::<(), web3::error::Error>(())
+        });
         core.run(work);
     }
 }
