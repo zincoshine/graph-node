@@ -1,4 +1,4 @@
-use ethabi::{Bytes, EventParam};
+use ethabi::{Bytes, Event, EventParam, LogParam};
 use ethereum_types::{Address, H256};
 use futures::Stream;
 use web3::error::Error as Web3Error;
@@ -35,14 +35,16 @@ pub struct EthereumEventSubscription {
     pub address: Address,
     pub event_signature: H256,
     pub range: BlockNumberRange,
+    pub event: Event,
 }
 
 /// An event logged for a specific contract address and event signature.
+#[derive(Debug)]
 pub struct EthereumEvent {
     pub address: Address,
     pub event_signature: H256,
     pub block_hash: H256,
-    // pub params: Vec<EventParam>,
+    pub params: Vec<LogParam>,
 }
 
 /// Common trait for components that watch and manage access to Ethereum.
