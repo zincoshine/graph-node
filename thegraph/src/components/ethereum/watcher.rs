@@ -1,11 +1,8 @@
-// extern crate web3;
-
-use futures::Stream;
-use components::EventProducer;
 use ethabi::{Bytes, EventParam};
 use ethereum_types::{Address, H256};
-use futures::sync::mpsc::Receiver;
-use web3::error::{Error as Web3Error};
+use futures::Stream;
+use web3::error::Error as Web3Error;
+use web3::types::BlockNumber;
 
 /// A request for the state of a contract at a specific block hash and address.
 pub struct EthereumContractStateRequest {
@@ -27,8 +24,8 @@ pub struct EthereumContractState {
 
 /// A range to allow event subscriptions to limit the block numbers to consider.
 pub struct BlockNumberRange {
-    pub from: Option<u64>,
-    pub to: Option<u64>,
+    pub from: BlockNumber,
+    pub to: BlockNumber,
 }
 
 /// A subscription to a specific contract address, event signature and block range.
@@ -63,7 +60,7 @@ pub trait EthereumAdapter {
     fn subscribe_to_event(
         &mut self,
         subscription: EthereumEventSubscription,
-    ) -> Box<Stream<Item=EthereumEvent,Error=Web3Error>>;
+    ) -> Box<Stream<Item = EthereumEvent, Error = Web3Error>>;
 
     /// Cancel a specific event subscription. Returns true when the subscription existed before.
     fn unsubscribe_from_event(&mut self, subscription_id: String) -> bool;
