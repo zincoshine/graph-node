@@ -1,6 +1,6 @@
 use ethereum_types::Address;
 use futures::prelude::*;
-use futures::sync::mpsc::{channel, Receiver, Sender};
+use futures::sync::mpsc::{channel, Receiver};
 use slog::Logger;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -177,9 +177,8 @@ where
 
         let logger = self.logger.clone();
 
-        self.runtime.spawn(receiver.for_each(move |event| {
-            debug!(logger, "Handle Ethereum event: {:?}", event);
-            Ok(())
+        self.runtime.spawn(receiver.for_each(|event| {
+            self.module.handle_ethereum_event(event);
         }));
     }
 }
