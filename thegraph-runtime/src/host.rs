@@ -173,8 +173,8 @@ impl RuntimeHost {
                         address,
                         event: event.clone(),
                         range: BlockNumberRange {
-                            from: BlockNumber::Number(0),
-                            to: BlockNumber::Latest,
+                            from: BlockNumber::Number(5283772),
+                            to: BlockNumber::Number(5293772),
                         },
                         subscription_id: subscription_id.clone(),
                     }

@@ -105,7 +105,7 @@ fn main() {
 
     // Create Ethereum adapter
     let (_transport_event_loop, transport) =
-        thegraph_ethereum::transports::http::Http::new(ethereum_rpc.as_str())
+        thegraph_ethereum::transports::ws::WebSocket::new(ethereum_rpc.as_str())
             .expect("Failed to connect to Ethereum RPC endpoint");
     let ethereum_watcher = thegraph_ethereum::EthereumAdapter::new(
         core.handle(),
