@@ -10,6 +10,7 @@ use serde_json;
 use slog;
 use tokio_core::reactor::Handle;
 
+use function::revert_block_group;
 use thegraph::components::schema::SchemaProviderEvent;
 use thegraph::components::store::{Store as StoreTrait, *};
 use thegraph::data::store::*;
@@ -94,9 +95,8 @@ impl Store {
 
     /// Handles block reorganizations.
     /// Revert all store changes related to given set of blocks
-    /// Returns the nearest common ancestor block
-    fn _revert_chain(&mut self, _block_hashes: Vec<String>) -> String {
-        unimplemented!();
+    fn _revert_chain(&mut self, block_hashes: Vec<String>) -> String {
+        revert_block_group(block_hashes);
     }
 }
 
