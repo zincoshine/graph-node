@@ -183,8 +183,8 @@ BEGIN
                         id = $3)'
                 USING
                     target_data_source,
-                    target_entity;
-                    target_entity_id,
+                    target_entity,
+                    target_entity_id;
             END;
     END CASE;
 END;
@@ -202,14 +202,18 @@ CREATE OR REPLACE FUNCTION rerun_entity(
     input_event_id INTEGER, input_data_source VARCHAR, input_entity VARCHAR, input_entity_id VARCHAR)
     RETURNS VOID AS
 $$
+DECLARE
+    entity_event_row RECORD;
 BEGIN
-     FOR row IN
+     FOR entity_event_row IN
         SELECT
             entity_history.id as id,
             event_meta_data.op_id as op_id
         FROM entity_history
+        JOIN event_meta_data ON
+            event_meta_data.id = entity_history.event_id
         WHERE (
-            entity_history.id = input_entity_id AND
+            entity_history.entity_id = input_entity_id AND
             entity_history.event_id = input_event_id AND
             entity_history.data_source = input_data_source
             AND
@@ -218,7 +222,7 @@ BEGIN
             entity_history.reversion = FALSE )
         ORDER BY entity_history.id ASC
     LOOP
-        PERFORM rerun_row_event(row.id, row.op_id);
+        PERFORM rerun_row_event(entity_event_row.id, entity_event_row.op_id);
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
@@ -239,10 +243,7 @@ DECLARE
 BEGIN
     FOR event_row IN
         SELECT
-            entity_history.event_id as event_id,
-            entity_history.data_source as data_source,
-            entity_history.entity as entity,
-            entity_history.entity_id as entity_id
+            entity_history.event_id as event_id
         FROM entity_history
         JOIN event_meta_data ON
             entity_history.event_id = event_meta_data.id
@@ -251,7 +252,7 @@ BEGIN
             entity_history.event_id
         ORDER BY entity_history.event_id DESC
     LOOP
-        PERFORM revert_transaction(row.event_id);
+        PERFORM revert_transaction(event_row.event_id::integer);
     END LOOP;
 
     FOR entity_row IN
@@ -269,7 +270,7 @@ BEGIN
             entity_history.entity,
             entity_history.entity_id
     LOOP
-        PERFORM rerun_entity(row.event_id, row.data_source, row.entity, row.entity_id);
+        PERFORM rerun_entity(entity_row.event_id::integer, entity_row.data_source, entity_row.entity, entity_row.entity_id);
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
@@ -299,10 +300,7 @@ BEGIN
     LOOP
         FOR event_row IN
             SELECT
-                entity_history.event_id as event_id,
-                entity_history.data_source as data_source,
-                entity_history.entity as entity,
-                entity_history.entity_id as entity_id
+                entity_history.event_id as event_id
             FROM entity_history
             JOIN event_meta_data ON
                 entity_history.event_id = event_meta_data.id
@@ -311,7 +309,7 @@ BEGIN
                 entity_history.event_id
             ORDER BY entity_history.event_id DESC
         LOOP
-            PERFORM revert_transaction(row.event_id);
+            PERFORM revert_transaction(event_row.event_id::integer);
         END LOOP;
     END LOOP;
 
@@ -330,7 +328,7 @@ BEGIN
             entity_history.entity,
             entity_history.entity_id
     LOOP
-        PERFORM rerun_entity(row.event_id, row.data_source, row.entity, row.entity_id);
+        PERFORM rerun_entity(entity_row.event_id::integer, entity_row.data_source, entity_row.entity, entity_row.entity_id);
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
