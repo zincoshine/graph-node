@@ -60,6 +60,17 @@ pub fn get_field_type<'a>(object_type: &'a ObjectType, name: &Name) -> Option<&'
     object_type.fields.iter().find(|field| &field.name == name)
 }
 
+/// Returns the type of a field of an interface type.
+pub fn get_interface_field_type<'a>(
+    interface_type: &'a InterfaceType,
+    name: &Name,
+) -> Option<&'a Field> {
+    interface_type
+        .fields
+        .iter()
+        .find(|field| &field.name == name)
+}
+
 /// Returns the type with the given name.
 pub fn get_named_type<'a>(schema: &'a Document, name: &Name) -> Option<&'a TypeDefinition> {
     schema
