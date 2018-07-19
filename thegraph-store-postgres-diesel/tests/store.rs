@@ -7,7 +7,9 @@ extern crate tokio_core;
 use diesel::pg::PgConnection;
 use diesel::*;
 use std::panic;
-use thegraph::components::store::{StoreFilter, StoreKey, StoreOrder, StoreQuery, StoreRange};
+use thegraph::components::store::{
+    EventSource, StoreFilter, StoreKey, StoreOrder, StoreQuery, StoreRange,
+};
 use thegraph::prelude::*;
 use thegraph::util::log::logger;
 use thegraph_store_postgres_diesel::{db_schema, Store as DieselStore, StoreConfig};
@@ -41,7 +43,8 @@ fn create_test_entity(
     age: i32,
     weight: f32,
     coffee: bool,
-) -> (StoreKey, Entity) {
+    block_hash: String,
+) -> (StoreKey, Entity, EventSource) {
     let test_key = StoreKey {
         entity: entity,
         id: id,
@@ -52,7 +55,11 @@ fn create_test_entity(
     test_entity.insert("age".to_string(), Value::Int(age));
     test_entity.insert("weight".to_string(), Value::Float(weight));
     test_entity.insert("coffee".to_string(), Value::Bool(coffee));
-    (test_key, test_entity)
+    (
+        test_key,
+        test_entity,
+        EventSource::LocalProcess(String::from(block_hash)),
+    )
 }
 
 /// Inserts test data into the store.
@@ -65,27 +72,29 @@ fn insert_test_data() {
     let test_entity_1 = create_test_entity(
         String::from("1"),
         String::from("user"),
-        String::from("Johnton".to_string()),
-        String::from("tonofjohn@email.com".to_string()),
+        String::from("Johnton"),
+        String::from("tonofjohn@email.com"),
         67 as i32,
         184.4 as f32,
         false,
+        String::from("1cYsEjD7LKVExSj0aFA8"),
     );
     store
-        .set(test_entity_1.0, test_entity_1.1)
+        .set(test_entity_1.0, test_entity_1.1, test_entity_1.2)
         .expect("Failed to insert test entity into the store");
 
     let test_entity_2 = create_test_entity(
         String::from("2"),
         String::from("user"),
-        String::from("Cindini".to_string()),
-        String::from("dinici@email.com".to_string()),
+        String::from("Cindini"),
+        String::from("dinici@email.com"),
         43 as i32,
         159.1 as f32,
         true,
+        String::from("b7kJ8ghP6PSITWx4lUZB"),
     );
     store
-        .set(test_entity_2.0, test_entity_2.1)
+        .set(test_entity_2.0, test_entity_2.1, test_entity_2.2)
         .expect("Failed to insert test entity into the store");
 
     let test_entity_3 = create_test_entity(
@@ -96,9 +105,10 @@ fn insert_test_data() {
         28 as i32,
         111.7 as f32,
         false,
+        String::from("TA7xjCbrczBiGFuZAW9Q"),
     );
     store
-        .set(test_entity_3.0, test_entity_3.1)
+        .set(test_entity_3.0, test_entity_3.1, test_entity_3.2)
         .expect("Failed to insert test entity into the store");
 }
 
@@ -182,9 +192,10 @@ fn insert_entity() {
             76 as i32,
             111.7 as f32,
             true,
+            String::from("MSjZmOE7UqBOzzYibsw9"),
         );
         store
-            .set(test_entity_1.0, test_entity_1.1)
+            .set(test_entity_1.0, test_entity_1.1, test_entity_1.2)
             .expect("Failed to set entity in the store");
 
         // Check that new record is in the store
@@ -214,6 +225,7 @@ fn update_existing() {
             76 as i32,
             111.7 as f32,
             true,
+            String::from("6SFIlpqNoDy6FfJQryNM"),
         );
 
         // Verify that the entity before updating is different from what we expect afterwards
@@ -221,7 +233,7 @@ fn update_existing() {
 
         // Set test entity; as the entity already exists an update should be performed
         store
-            .set(test_entity_1.0, test_entity_1.1.clone())
+            .set(test_entity_1.0, test_entity_1.1.clone(), test_entity_1.2)
             .expect("Failed to update entity that already exists");
 
         // Verify that the entity in the store has changed to what we have set
