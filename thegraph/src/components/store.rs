@@ -56,7 +56,7 @@ pub struct StoreRange {
 #[derive(Clone, Debug, PartialEq)]
 pub struct StoreQuery {
     /// The name of the entity type.
-    pub entity: String,
+    pub entities: Vec<String>,
 
     /// Filter to filter entities by.
     pub filter: Option<StoreFilter>,
