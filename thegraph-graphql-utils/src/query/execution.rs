@@ -465,7 +465,25 @@ where
         },
 
         // We will implement these later
-        s::TypeDefinition::Interface(_) => unimplemented!(),
+        s::TypeDefinition::Interface(t) => match object_value {
+            Some(q::Value::Object(o)) => if ctx.introspecting {
+                Ok(ctx.introspection_resolver.resolve_interface_object(
+                    object_value,
+                    &field.name,
+                    field_definition,
+                    t,
+                    argument_values,
+                ))
+            } else {
+                Ok(ctx.resolver.resolve_interface_object(
+                    object_value,
+                    &field.name,
+                    field_definition,
+                    t,
+                    argument_values,
+                ))
+            },
+        },
         s::TypeDefinition::Union(_) => unimplemented!(),
 
         _ => unimplemented!(),
@@ -552,8 +570,27 @@ where
                     _ => Ok(q::Value::Null),
                 },
 
+                // Let the resolver decide how the list field (with the given item object type)
+                // is resolved into a entities based on the (potential) parent object
+                s::TypeDefinition::Interface(t) => if ctx.introspecting {
+                    Ok(ctx.introspection_resolver.resolve_interface_objects(
+                        object_value,
+                        &field.name,
+                        field_definition,
+                        t,
+                        argument_values,
+                    ))
+                } else {
+                    Ok(ctx.resolver.resolve_interface_objects(
+                        object_value,
+                        &field.name,
+                        field_definition,
+                        t,
+                        argument_values,
+                    ))
+                },
+
                 // We will implement these later
-                s::TypeDefinition::Interface(_) => unimplemented!(),
                 s::TypeDefinition::Union(_) => unimplemented!(),
 
                 _ => unimplemented!(),
