@@ -465,24 +465,22 @@ where
         },
 
         // We will implement these later
-        s::TypeDefinition::Interface(t) => match object_value {
-            Some(q::Value::Object(o)) => if ctx.introspecting {
-                Ok(ctx.introspection_resolver.resolve_interface_object(
-                    object_value,
-                    &field.name,
-                    field_definition,
-                    t,
-                    argument_values,
-                ))
-            } else {
-                Ok(ctx.resolver.resolve_interface_object(
-                    object_value,
-                    &field.name,
-                    field_definition,
-                    t,
-                    argument_values,
-                ))
-            },
+        s::TypeDefinition::Interface(t) => if ctx.introspecting {
+            Ok(ctx.introspection_resolver.resolve_interface_object(
+                object_value,
+                &field.name,
+                field_definition,
+                t,
+                argument_values,
+            ))
+        } else {
+            Ok(ctx.resolver.resolve_interface_object(
+                object_value,
+                &field.name,
+                field_definition,
+                t,
+                argument_values,
+            ))
         },
         s::TypeDefinition::Union(_) => unimplemented!(),
 
