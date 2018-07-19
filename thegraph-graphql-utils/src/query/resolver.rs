@@ -25,6 +25,26 @@ pub trait Resolver: Clone {
         arguments: &HashMap<&q::Name, q::Value>,
     ) -> q::Value;
 
+    /// Resolves entities, referenced by a parent object, that implement the given interface type.
+    fn resolve_interface_objects(
+        &self,
+        parent: &Option<q::Value>,
+        field: &q::Name,
+        field_definition: &s::Field,
+        interface_type: &s::InterfaceType,
+        arguments: &HashMap<&q::Name, q::Value>,
+    ) -> q::Value;
+
+    /// Resolves an entity, referenced by a parent object, that implements the given interface type.
+    fn resolve_interface_object(
+        &self,
+        parent: &Option<q::Value>,
+        field: &q::Name,
+        field_definition: &s::Field,
+        interface_type: &s::InterfaceType,
+        arguments: &HashMap<&q::Name, q::Value>,
+    ) -> q::Value;
+
     /// Resolves an enum value for a given enum type.
     fn resolve_enum_value(&self, enum_type: &s::EnumType, value: Option<&q::Value>) -> q::Value {
         value

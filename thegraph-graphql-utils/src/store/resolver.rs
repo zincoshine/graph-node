@@ -286,4 +286,26 @@ impl Resolver for StoreResolver {
             }
         }
     }
+
+    fn resolve_interface_objects(
+        &self,
+        _parent: &Option<q::Value>,
+        _field: &q::Name,
+        _field_definition: &s::Field,
+        _interface_type: &s::InterfaceType,
+        _arguments: &HashMap<&q::Name, q::Value>,
+    ) -> q::Value {
+        q::Value::Null
+    }
+
+    fn resolve_interface_object(
+        &self,
+        _parent: &Option<q::Value>,
+        _field: &q::Name,
+        _field_definition: &s::Field,
+        _interface_type: &s::InterfaceType,
+        _arguments: &HashMap<&q::Name, q::Value>,
+    ) -> q::Value {
+        q::Value::Null
+    }
 }
