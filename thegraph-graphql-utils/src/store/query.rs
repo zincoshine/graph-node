@@ -4,9 +4,9 @@ use std::collections::{BTreeMap, HashMap};
 use thegraph::prelude::*;
 
 /// Builds a StoreQuery from GraphQL arguments.
-pub fn build_query(entity: &q::Name, arguments: &HashMap<&q::Name, q::Value>) -> StoreQuery {
+pub fn build_query(entities: Vec<&q::Name>, arguments: &HashMap<&q::Name, q::Value>) -> StoreQuery {
     StoreQuery {
-        entity: entity.to_owned(),
+        entities: entities.into_iter().map(|name| name.clone()).collect(),
         range: build_range(arguments),
         filter: build_filter(arguments),
         order_by: build_order_by(arguments),
@@ -159,23 +159,23 @@ mod tests {
     #[test]
     fn builc_query_uses_the_entity_name() {
         assert_eq!(
-            build_query(&"Entity1".to_string(), &HashMap::new()).entity,
-            "Entity1".to_string()
+            build_query(vec![&"Entity1".to_string()], &HashMap::new()).entities,
+            vec!["Entity1".to_string()]
         );
         assert_eq!(
-            build_query(&"Entity2".to_string(), &HashMap::new()).entity,
-            "Entity2".to_string()
+            build_query(vec![&"Entity2".to_string()], &HashMap::new()).entities,
+            vec!["Entity2".to_string()]
         );
     }
 
     #[test]
     fn build_query_yields_no_order_if_order_arguments_are_missing() {
         assert_eq!(
-            build_query(&"Entity".to_string(), &HashMap::new()).order_by,
+            build_query(vec![&"Entity".to_string()], &HashMap::new()).order_by,
             None,
         );
         assert_eq!(
-            build_query(&"Entity".to_string(), &HashMap::new()).order_direction,
+            build_query(vec![&"Entity".to_string()], &HashMap::new()).order_direction,
             None,
         );
     }
@@ -184,7 +184,7 @@ mod tests {
     fn build_query_parses_order_by_from_enum_values_correctly() {
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
                     vec![(&"orderBy".to_string(), q::Value::Enum("name".to_string()))].into_iter(),
                 )
@@ -193,9 +193,9 @@ mod tests {
         );
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
-                    vec![(&"orderBy".to_string(), q::Value::Enum("email".to_string()))].into_iter()
+                    vec![(&"orderBy".to_string(), q::Value::Enum("email".to_string()))].into_iter(),
                 )
             ).order_by,
             Some("email".to_string())
@@ -206,17 +206,17 @@ mod tests {
     fn build_query_ignores_order_by_from_non_enum_values() {
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
                     vec![(&"orderBy".to_string(), q::Value::String("name".to_string()))]
-                        .into_iter()
+                        .into_iter(),
                 ),
             ).order_by,
             None,
         );
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
                     vec![(
                         &"orderBy".to_string(),
@@ -232,7 +232,7 @@ mod tests {
     fn build_query_parses_order_direction_from_enum_values_correctly() {
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
                     vec![(
                         &"orderDirection".to_string(),
@@ -244,24 +244,24 @@ mod tests {
         );
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
                     vec![(
                         &"orderDirection".to_string(),
                         q::Value::Enum("desc".to_string()),
-                    )].into_iter()
+                    )].into_iter(),
                 )
             ).order_direction,
             Some(StoreOrder::Descending)
         );
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
                     vec![(
                         &"orderDirection".to_string(),
                         q::Value::Enum("ascending...".to_string()),
-                    )].into_iter()
+                    )].into_iter(),
                 )
             ).order_direction,
             None,
@@ -272,19 +272,19 @@ mod tests {
     fn build_query_ignores_order_direction_from_non_enum_values() {
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
                     vec![(
                         &"orderDirection".to_string(),
                         q::Value::String("asc".to_string()),
-                    )].into_iter()
+                    )].into_iter(),
                 ),
             ).order_direction,
             None,
         );
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
                     vec![(
                         &"orderDirection".to_string(),
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn build_query_yields_no_range_if_none_is_present() {
         assert_eq!(
-            build_query(&"Entity".to_string(), &HashMap::new()).range,
+            build_query(vec![&"Entity".to_string()], &HashMap::new()).range,
             None,
         );
     }
@@ -345,7 +345,7 @@ mod tests {
     fn build_query_yields_filters() {
         assert_eq!(
             build_query(
-                &"Entity".to_string(),
+                vec![&"Entity".to_string()],
                 &HashMap::from_iter(
                     vec![(
                         &"filter".to_string(),
@@ -353,7 +353,7 @@ mod tests {
                             "name_ends_with".to_string(),
                             q::Value::String("ello".to_string()),
                         )])),
-                    )].into_iter()
+                    )].into_iter(),
                 )
             ).filter,
             Some(StoreFilter::And(vec![StoreFilter::EndsWith(
