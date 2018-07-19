@@ -78,7 +78,7 @@ fn list_values(value: &q::Value) -> Vec<Value> {
 fn build_filter_from_key_value_pair(key: &q::Name, value: &q::Value) -> StoreFilter {
     match key {
         s if s.ends_with("_not") => StoreFilter::Not(filter_attr(s, "_not"), value.into()),
-        s if s.ends_with("_gt") => StoreFilter::Not(filter_attr(s, "_gt"), value.into()),
+        s if s.ends_with("_gt") => StoreFilter::GreaterThan(filter_attr(s, "_gt"), value.into()),
         s if s.ends_with("_lt") => StoreFilter::LessThan(filter_attr(s, "_lt"), value.into()),
         s if s.ends_with("_gte") => {
             StoreFilter::GreaterOrEqual(filter_attr(s, "_gte"), value.into())
