@@ -20,7 +20,23 @@ fn test_schema() -> Schema {
         id: String::from("test-schema"),
         document: api_schema(&graphql_parser::parse_schema(
             "
-            type Musician {
+            interface Musician {
+                id: ID!
+                name: String!
+                mainBand: Band
+                bands: [Band!]!
+                writtenSongs: [Song]! @derivedFrom(field: \"writtenBy\")
+            }
+
+            type RockMusician implements Musician {
+                id: ID!
+                name: String!
+                mainBand: Band
+                bands: [Band!]!
+                writtenSongs: [Song]! @derivedFrom(field: \"writtenBy\")
+            }
+
+            type PopMusician implements Musician {
                 id: ID!
                 name: String!
                 mainBand: Band
@@ -57,7 +73,7 @@ impl TestStore {
         TestStore {
             entities: vec![
                 Entity::from(vec![
-                    ("__typename", Value::from("Musician")),
+                    ("__typename", Value::from("PopMusician")),
                     ("id", Value::from("m1")),
                     ("name", Value::from("John")),
                     ("mainBand", Value::from("b1")),
@@ -67,14 +83,14 @@ impl TestStore {
                     ),
                 ]),
                 Entity::from(vec![
-                    ("__typename", Value::from("Musician")),
+                    ("__typename", Value::from("RockMusician")),
                     ("id", Value::from("m2")),
                     ("name", Value::from("Lisa")),
                     ("mainBand", Value::from("b1")),
                     ("bands", Value::List(vec![Value::from("b1")])),
                 ]),
                 Entity::from(vec![
-                    ("__typename", Value::from("Musician")),
+                    ("__typename", Value::from("PopMusician")),
                     ("id", Value::from("m3")),
                     ("name", Value::from("Tom")),
                     ("mainBand", Value::from("b2")),
@@ -84,7 +100,7 @@ impl TestStore {
                     ),
                 ]),
                 Entity::from(vec![
-                    ("__typename", Value::from("Musician")),
+                    ("__typename", Value::from("RockMusician")),
                     ("id", Value::from("m4")),
                     ("name", Value::from("Valerie")),
                     ("bands", Value::List(vec![])),
@@ -149,11 +165,15 @@ impl BasicStore for TestStore {
     }
 
     fn find(&self, query: StoreQuery) -> Result<Vec<Entity>, ()> {
-        let entity_name = Value::String(query.entity.clone());
+        let entity_names: Vec<Value> = query
+            .entities
+            .iter()
+            .map(|name| Value::String(name.clone()))
+            .collect();
 
         let entities = self.entities
             .iter()
-            .filter(|entity| entity.get("__typename") == Some(&entity_name))
+            .filter(|entity| entity.get("__typename").map_or(false, |typename| entity_names.contains(typename)))
             // We're only supporting the following filters here to to test
             // the filters generated for reference fields and @derivedFrom fields:
             //
@@ -192,8 +212,10 @@ impl BasicStore for TestStore {
 fn execute_query(query: q::Document) -> QueryResult {
     let (sender, _receiver) = oneshot::channel();
 
+    let schema = test_schema();
+
     let query = Query {
-        schema: test_schema(),
+        schema: schema.clone(),
         document: query,
         variables: None,
         result_sender: sender,
@@ -201,7 +223,7 @@ fn execute_query(query: q::Document) -> QueryResult {
 
     let logger = Logger::root(slog::Discard, o!());
     let store = Arc::new(Mutex::new(TestStore::new()));
-    let store_resolver = StoreResolver::new(&logger, store);
+    let store_resolver = StoreResolver::new(&logger, schema, store);
 
     let options = ExecutionOptions {
         logger: logger,
