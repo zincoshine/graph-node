@@ -133,6 +133,19 @@ fn build_order_direction(arguments: &HashMap<&q::Name, q::Value>) -> Option<Stor
         })
 }
 
+/// Adds a filter to the top-level `And` filter of a query.
+pub fn add_top_level_filter(query: &mut StoreQuery, filter: StoreFilter) {
+    let top_level_filter = query.filter.get_or_insert(StoreFilter::And(vec![]));
+    *top_level_filter = match top_level_filter {
+        StoreFilter::And(ref mut filters) => {
+            let mut filters = filters.clone();
+            filters.push(filter);
+            StoreFilter::And(filters)
+        }
+        _ => top_level_filter.clone(),
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use graphql_parser::query as q;
