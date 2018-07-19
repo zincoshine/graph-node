@@ -6,6 +6,7 @@ use tokio_core::reactor::Handle;
 
 use thegraph::components::data_sources::DataSourceProviderEvent;
 use thegraph::components::data_sources::RuntimeHostEvent;
+use thegraph::components::store::EventSource;
 use thegraph::prelude::*;
 
 pub struct RuntimeManager {
@@ -63,14 +64,22 @@ impl RuntimeManager where {
                     store
                         .lock()
                         .unwrap()
-                        .set(store_key, entity)
+                        .set(
+                            store_key,
+                            entity,
+                            EventSource::LocalProcess(String::from("blockhash")),
+                        )
                         .expect("Failed to create entity in the store");
                 }
                 RuntimeHostEvent::EntityChanged(_data_source_id, store_key, entity) => {
                     store
                         .lock()
                         .unwrap()
-                        .set(store_key, entity)
+                        .set(
+                            store_key,
+                            entity,
+                            EventSource::LocalProcess(String::from("blockhash")),
+                        )
                         .expect("Failed to update entity in the store");
                 }
                 RuntimeHostEvent::EntityRemoved(_data_source_id, store_key) => {
