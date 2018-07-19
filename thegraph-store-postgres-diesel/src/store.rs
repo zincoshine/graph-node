@@ -149,7 +149,7 @@ impl BasicStore for Store {
                 entity.eq(&key.entity),
                 data_source.eq(&datasource),
                 data.eq(&entity_json),
-                latest_block_hash.eq(&block_identifier),
+                event_source.eq(&block_identifier),
             ))
             .on_conflict((id, entity, data_source))
             .do_update()
@@ -158,7 +158,7 @@ impl BasicStore for Store {
                 entity.eq(&key.entity),
                 data_source.eq(&data_source),
                 data.eq(&entity_json),
-                latest_block_hash.eq(&block_identifier),
+                event_source.eq(&block_identifier),
             ))
             .execute(&self.conn)
             .map(|_| ())
