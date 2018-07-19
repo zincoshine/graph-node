@@ -5,23 +5,31 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use thegraph::components::store::*;
-use thegraph::prelude::{BasicStore, Value};
+use thegraph::prelude::{BasicStore, Schema, Value};
 
 use prelude::*;
 use query::ast as qast;
 use schema::ast as sast;
+use store::add_top_level_filter;
+
+enum ObjectOrInterfaceType<'a> {
+    Object(&'a s::ObjectType),
+    Interface(&'a s::InterfaceType),
+}
 
 /// A resolver that fetches entities from a `Store`.
 #[derive(Clone)]
 pub struct StoreResolver {
     logger: slog::Logger,
+    schema: Schema,
     store: Arc<Mutex<BasicStore>>,
 }
 
 impl StoreResolver {
-    pub fn new(logger: &slog::Logger, store: Arc<Mutex<BasicStore>>) -> Self {
+    pub fn new(logger: &slog::Logger, schema: Schema, store: Arc<Mutex<BasicStore>>) -> Self {
         StoreResolver {
             logger: logger.new(o!("component" => "StoreResolver")),
+            schema,
             store,
         }
     }
@@ -39,11 +47,11 @@ impl StoreResolver {
     ///
     /// Returns true if the field is a derived field (i.e., if it is defined with
     /// a @derivedFrom directive).
-    fn add_filter_for_derived_field(
+    fn add_filter_for_derived_field<'a>(
         query: &mut StoreQuery,
         parent: &Option<q::Value>,
         field_definition: &s::Field,
-        object_type: &s::ObjectType,
+        target_type: ObjectOrInterfaceType<'a>,
     ) -> bool {
         let derived_from_field = Self::get_derived_from_directive(field_definition)
             .and_then(|directive| {
@@ -53,8 +61,13 @@ impl StoreResolver {
                 q::Value::String(s) => Some(s),
                 _ => None,
             })
-            .and_then(|derived_from_field_name| {
-                sast::get_field_type(object_type, derived_from_field_name)
+            .and_then(|derived_from_field_name| match target_type {
+                ObjectOrInterfaceType::Object(object_type) => {
+                    sast::get_field_type(object_type, derived_from_field_name)
+                }
+                ObjectOrInterfaceType::Interface(interface_type) => {
+                    sast::get_interface_field_type(interface_type, derived_from_field_name)
+                }
             });
 
         if let Some(derived_from_field) = derived_from_field {
@@ -97,15 +110,7 @@ impl StoreResolver {
 
             // Add the `Contains`/`Equal` filter to the top-level `And` filter, creating one
             // if necessary
-            let top_level_filter = query.filter.get_or_insert(StoreFilter::And(vec![]));
-            *top_level_filter = match top_level_filter {
-                StoreFilter::And(ref mut filters) => {
-                    let mut filters = filters.clone();
-                    filters.push(filter);
-                    StoreFilter::And(filters)
-                }
-                _ => top_level_filter.clone(),
-            };
+            add_top_level_filter(query, filter);
 
             true
         } else {
@@ -118,7 +123,6 @@ impl StoreResolver {
         query: &mut StoreQuery,
         parent: &Option<q::Value>,
         field_definition: &s::Field,
-        _object_type: &s::ObjectType,
     ) {
         if let Some(q::Value::Object(object)) = parent {
             // Create an `Or(Equals("id", ref_id1), ...)` filter that includes
@@ -148,15 +152,7 @@ impl StoreResolver {
                 );
 
             // Add the `Or` filter to the top-level `And` filter, creating one if necessary
-            let top_level_filter = query.filter.get_or_insert(StoreFilter::And(vec![]));
-            *top_level_filter = match top_level_filter {
-                StoreFilter::And(ref mut filters) => {
-                    let mut filters = filters.clone();
-                    filters.push(filter);
-                    StoreFilter::And(filters)
-                }
-                _ => top_level_filter.clone(),
-            };
+            add_top_level_filter(query, filter);
         }
     }
 
@@ -186,11 +182,15 @@ impl Resolver for StoreResolver {
         object_type: &s::ObjectType,
         arguments: &HashMap<&q::Name, q::Value>,
     ) -> q::Value {
-        let mut query = build_query(&object_type.name, arguments);
+        let mut query = build_query(vec![&object_type.name], arguments);
 
         // Add matching filter for derived fields
-        let is_derived =
-            Self::add_filter_for_derived_field(&mut query, parent, field_definition, object_type);
+        let is_derived = Self::add_filter_for_derived_field(
+            &mut query,
+            parent,
+            field_definition,
+            ObjectOrInterfaceType::Object(object_type),
+        );
 
         // Return an empty list if we're dealing with a non-derived field that
         // holds an empty list of references; there's no point in querying the store
@@ -204,7 +204,7 @@ impl Resolver for StoreResolver {
 
         // Add matching filter for reference fields
         if !is_derived {
-            Self::add_filter_for_reference_field(&mut query, parent, field_definition, object_type);
+            Self::add_filter_for_reference_field(&mut query, parent, field_definition);
         }
 
         let store = self.store.lock().unwrap();
@@ -259,14 +259,14 @@ impl Resolver for StoreResolver {
                 _ => q::Value::Null,
             },
             _ => {
-                let mut query = build_query(&object_type.name, arguments);
+                let mut query = build_query(vec![&object_type.name], arguments);
 
                 // Add matching filter for derived fields
                 Self::add_filter_for_derived_field(
                     &mut query,
                     parent,
                     field_definition,
-                    object_type,
+                    ObjectOrInterfaceType::Object(object_type),
                 );
 
                 query.range = Some(StoreRange { first: 1, skip: 0 });
@@ -277,10 +277,9 @@ impl Resolver for StoreResolver {
                     .find(query)
                     .map(|entities| {
                         entities
-                            .into_iter()
-                            .next()
-                            .map(|entity| entity.into())
-                            .unwrap_or(q::Value::Null)
+                            .first()
+                            .cloned()
+                            .map_or(q::Value::Null, |entity| entity.into())
                     })
                     .unwrap_or(q::Value::Null)
             }
@@ -289,23 +288,172 @@ impl Resolver for StoreResolver {
 
     fn resolve_interface_objects(
         &self,
-        _parent: &Option<q::Value>,
+        parent: &Option<q::Value>,
         _field: &q::Name,
-        _field_definition: &s::Field,
-        _interface_type: &s::InterfaceType,
-        _arguments: &HashMap<&q::Name, q::Value>,
+        field_definition: &s::Field,
+        interface_type: &s::InterfaceType,
+        arguments: &HashMap<&q::Name, q::Value>,
     ) -> q::Value {
-        q::Value::Null
+        let entity_names = sast::get_object_type_definitions(&self.schema.document)
+            .iter()
+            .filter(|object_type| {
+                object_type
+                    .implements_interfaces
+                    .contains(&interface_type.name)
+            })
+            .map(|object_type| &object_type.name)
+            .collect();
+
+        let mut query = build_query(entity_names, arguments);
+
+        // Add matching filter for derived fields
+        let is_derived = Self::add_filter_for_derived_field(
+            &mut query,
+            parent,
+            field_definition,
+            ObjectOrInterfaceType::Interface(interface_type),
+        );
+
+        // Return an empty list if we're dealing with a non-derived field that
+        // holds an empty list of references; there's no point in querying the store
+        // if the result will be empty anyway
+        if !is_derived
+            && parent.is_some()
+            && Self::references_field_is_empty(parent, &field_definition.name)
+        {
+            return q::Value::List(vec![]);
+        }
+
+        // Add matching filter for reference fields
+        if !is_derived {
+            Self::add_filter_for_reference_field(&mut query, parent, field_definition);
+        }
+
+        let store = self.store.lock().unwrap();
+        store
+            .find(query)
+            .map(|entities| {
+                q::Value::List(
+                    entities
+                        .into_iter()
+                        .map(|e| e.into())
+                        .collect::<Vec<q::Value>>(),
+                )
+            })
+            .unwrap_or(q::Value::Null)
     }
 
     fn resolve_interface_object(
         &self,
-        _parent: &Option<q::Value>,
-        _field: &q::Name,
-        _field_definition: &s::Field,
-        _interface_type: &s::InterfaceType,
-        _arguments: &HashMap<&q::Name, q::Value>,
+        parent: &Option<q::Value>,
+        field: &q::Name,
+        field_definition: &s::Field,
+        interface_type: &s::InterfaceType,
+        arguments: &HashMap<&q::Name, q::Value>,
     ) -> q::Value {
-        q::Value::Null
+        let entity_names = sast::get_object_type_definitions(&self.schema.document)
+            .iter()
+            .filter(|object_type| {
+                object_type
+                    .implements_interfaces
+                    .contains(&interface_type.name)
+            })
+            .map(|object_type| &object_type.name)
+            .collect();
+
+        let mut query = build_query(entity_names, arguments);
+
+        let id = arguments.get(&String::from("id")).and_then(|id| match id {
+            q::Value::String(s) => Some(s),
+            _ => None,
+        });
+
+        if let Some(id) = id {
+            add_top_level_filter(
+                &mut query,
+                StoreFilter::Equal(String::from("id"), Value::String(id.clone())),
+            );
+            query.range = Some(StoreRange { first: 1, skip: 0 });
+
+            let store = self.store.lock().unwrap();
+            return store
+                .find(query)
+                .map(|entities| {
+                    entities
+                        .first()
+                        .cloned()
+                        .map_or(q::Value::Null, |entity| entity.into())
+                })
+                .unwrap_or(q::Value::Null);
+        }
+
+        match parent {
+            Some(q::Value::Object(parent_object)) => match parent_object.get(field) {
+                Some(q::Value::String(id)) => {
+                    add_top_level_filter(
+                        &mut query,
+                        StoreFilter::Equal(String::from("id"), Value::String(id.clone())),
+                    );
+                    query.range = Some(StoreRange { first: 1, skip: 0 });
+
+                    self.store
+                        .lock()
+                        .unwrap()
+                        .find(query)
+                        .map(|entities| {
+                            entities
+                                .first()
+                                .cloned()
+                                .map_or(q::Value::Null, |entity| entity.into())
+                        })
+                        .unwrap_or(q::Value::Null)
+                }
+                _ => q::Value::Null,
+            },
+            _ => {
+                // Add matching filter for derived fields
+                Self::add_filter_for_derived_field(
+                    &mut query,
+                    parent,
+                    field_definition,
+                    ObjectOrInterfaceType::Interface(interface_type),
+                );
+
+                query.range = Some(StoreRange { first: 1, skip: 0 });
+
+                self.store
+                    .lock()
+                    .unwrap()
+                    .find(query)
+                    .map(|entities| {
+                        entities
+                            .first()
+                            .cloned()
+                            .map_or(q::Value::Null, |entity| entity.into())
+                    })
+                    .unwrap_or(q::Value::Null)
+            }
+        }
+    }
+
+    fn resolve_abstract_type<'a>(
+        &self,
+        schema: &'a s::Document,
+        _abstract_type: &s::TypeDefinition,
+        object_value: &q::Value,
+    ) -> Option<&'a s::ObjectType> {
+        let typename = match object_value {
+            q::Value::Object(o) => o.get("__typename"),
+            _ => None,
+        };
+
+        if let Some(q::Value::String(name)) = typename {
+            sast::get_object_type_definitions(schema)
+                .iter()
+                .find(|object_type| &object_type.name == name)
+                .map(|object_type| object_type.clone())
+        } else {
+            None
+        }
     }
 }

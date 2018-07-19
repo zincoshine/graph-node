@@ -42,7 +42,7 @@ where
         self.runtime.spawn(stream.for_each(move |query| {
             let options = ExecutionOptions {
                 logger: logger.clone(),
-                resolver: StoreResolver::new(&logger, store.clone()),
+                resolver: StoreResolver::new(&logger, query.schema.clone(), store.clone()),
             };
             let result = execute(&query, options);
 
