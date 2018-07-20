@@ -4,9 +4,11 @@ use slog::Logger;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio_core::reactor::Handle;
-use wasmi::{Error, Externals, FuncInstance, FuncRef, ImportsBuilder, MemoryRef, Module,
-            ModuleImportResolver, ModuleInstance, ModuleRef, NopExternals, RuntimeArgs,
-            RuntimeValue, Signature, Trap, ValueType};
+use wasmi::{
+    Error, Externals, FuncInstance, FuncRef, ImportsBuilder, MemoryRef, Module,
+    ModuleImportResolver, ModuleInstance, ModuleRef, NopExternals, RuntimeArgs, RuntimeValue,
+    Signature, Trap, ValueType,
+};
 use web3::types::BlockId;
 
 use thegraph::components::data_sources::RuntimeHostEvent;
