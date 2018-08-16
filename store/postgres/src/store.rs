@@ -278,16 +278,4 @@ impl StoreTrait for Store {
     fn schema_provider_event_sink(&mut self) -> Sender<SchemaProviderEvent> {
         self.schema_provider_event_sink.clone()
     }
-
-    fn event_stream(&mut self) -> Result<Receiver<StoreEvent>, StreamError> {
-        // If possible, create a new channel for streaming store events
-        match self.event_sink {
-            Some(_) => Err(StreamError::AlreadyCreated),
-            None => {
-                let (sink, stream) = channel(100);
-                self.event_sink = Some(sink);
-                Ok(stream)
-            }
-        }
-    }
 }
