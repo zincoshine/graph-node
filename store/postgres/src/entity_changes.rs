@@ -55,7 +55,7 @@ impl EntityChangeListener {
                     serde_json::from_str(payload.as_str())
                         .map_err(|e| {
                             error!(error_logger, "Invalid entity change received from Postgres";
-                               "error" => format!("{}", e).as_str());
+                                   "error" => format!("{}", e).as_str());
                         })
                         .ok()
                 })
