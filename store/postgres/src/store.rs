@@ -7,7 +7,9 @@ use diesel::{delete, insert_into, result, select};
 use filter::store_filter;
 use futures::stream;
 use futures::sync::mpsc::{channel, Receiver, Sender};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use uuid::Uuid;
 
 use graph::components::store::{EventSource, Store as StoreTrait};
 use graph::prelude::*;
@@ -55,7 +57,7 @@ pub struct Store {
     event_sink: Option<Sender<StoreEvent>>,
     logger: slog::Logger,
     schema_provider_event_sink: Sender<SchemaProviderEvent>,
-    subscriptions: Arc<RwLock<Vec<Subscription>>>,
+    subscriptions: Arc<RwLock<HashMap<String, Subscription>>>,
     pub conn: PgConnection,
 }
 
@@ -81,7 +83,7 @@ impl Store {
             logger: logger.clone(),
             event_sink: None,
             schema_provider_event_sink: sink,
-            subscriptions: Arc::new(RwLock::new(vec![])),
+            subscriptions: Arc::new(RwLock::new(HashMap::new())),
             conn,
         };
 
@@ -119,11 +121,14 @@ impl Store {
 
         tokio::spawn(entity_changes.for_each(move |change| {
             debug!(logger, "Entity change";
-                           "change" => format!("{:?}", change));
+                   "subgraph" => &change.subgraph,
+                   "entity" => &change.entity,
+                   "id" => &change.id);
 
             let subscriptions = subscriptions.read().unwrap();
+
             let matching_senders = subscriptions
-                .iter()
+                .values()
                 .filter(|subscription| {
                     subscription.subgraph == change.subgraph
                         && subscription.entities.contains(&change.entity)
@@ -308,8 +313,10 @@ impl StoreTrait for Store {
         &mut self,
         subgraph: String,
         entities: Vec<String>,
-    ) -> Box<Stream<Item = EntityChange, Error = ()> + Send> {
+    ) -> (String, Box<Stream<Item = EntityChange, Error = ()> + Send>) {
         let (sender, receiver) = channel(100);
+
+        let id = Uuid::new_v4().to_string();
         let subscription = Subscription {
             subgraph,
             entities,
@@ -317,8 +324,16 @@ impl StoreTrait for Store {
         };
 
         let subscriptions = self.subscriptions.clone();
-        subscriptions.write().unwrap().push(subscription);
+        let mut subscriptions = subscriptions.write().unwrap();
 
-        Box::new(receiver)
+        if subscriptions.contains_key(&id) {
+            let drain = self.logger.clone().fuse();
+            let logger = slog::Logger::root(drain, o!());
+            error!(logger, "Duplicate Store subscription detected"; "id" => &id);
+        }
+
+        subscriptions.insert(id.clone(), subscription);
+
+        (id, Box::new(receiver))
     }
 }
