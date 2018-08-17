@@ -100,6 +100,14 @@ impl Store for MockStore {
     fn schema_provider_event_sink(&mut self) -> Sender<SchemaProviderEvent> {
         self.schema_provider_event_sink.clone()
     }
+
+    fn subscribe(
+        &mut self,
+        subgraph: String,
+        entities: Vec<String>,
+    ) -> Box<Stream<Item = EntityChange, Error = ()> + Send> {
+        unimplemented!();
+    }
 }
 
 pub struct FakeStore;
@@ -125,5 +133,13 @@ impl BasicStore for FakeStore {
 impl Store for FakeStore {
     fn schema_provider_event_sink(&mut self) -> Sender<SchemaProviderEvent> {
         panic!("called FakeStore")
+    }
+
+    fn subscribe(
+        &mut self,
+        subgraph: String,
+        entities: Vec<String>,
+    ) -> Box<Stream<Item = EntityChange, Error = ()> + Send> {
+        unimplemented!();
     }
 }
