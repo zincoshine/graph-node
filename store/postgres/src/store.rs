@@ -5,7 +5,9 @@ use diesel::prelude::*;
 use diesel::sql_types::Text;
 use diesel::{delete, insert_into, result, select};
 use filter::store_filter;
+use futures::stream;
 use futures::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, RwLock};
 
 use graph::components::store::{EventSource, Store as StoreTrait};
 use graph::prelude::*;
@@ -16,6 +18,13 @@ use entity_changes::EntityChangeListener;
 use functions::{revert_block, set_config};
 
 embed_migrations!("./migrations");
+
+/// Internal representation of a Store subscription.
+struct Subscription {
+    pub subgraph: String,
+    pub entities: Vec<String>,
+    pub sender: Sender<EntityChange>,
+}
 
 /// Run all initial schema migrations.
 ///
@@ -46,6 +55,7 @@ pub struct Store {
     event_sink: Option<Sender<StoreEvent>>,
     logger: slog::Logger,
     schema_provider_event_sink: Sender<SchemaProviderEvent>,
+    subscriptions: Arc<RwLock<Vec<Subscription>>>,
     pub conn: PgConnection,
 }
 
@@ -71,7 +81,8 @@ impl Store {
             logger: logger.clone(),
             event_sink: None,
             schema_provider_event_sink: sink,
-            conn: conn,
+            subscriptions: Arc::new(RwLock::new(vec![])),
+            conn,
         };
 
         // Spawn a task that handles incoming schema provider events
@@ -104,15 +115,29 @@ impl Store {
         entity_changes: Box<Stream<Item = EntityChange, Error = ()> + Send>,
     ) {
         let logger = self.logger.clone();
-        tokio::spawn(
-            entity_changes
-                .for_each(move |change| {
-                    debug!(logger, "Entity change";
+        let subscriptions = self.subscriptions.clone();
+
+        tokio::spawn(entity_changes.for_each(move |change| {
+            debug!(logger, "Entity change";
                            "change" => format!("{:?}", change));
-                    Ok(())
+
+            let subscriptions = subscriptions.read().unwrap();
+            let matching_senders = subscriptions
+                .iter()
+                .filter(|subscription| {
+                    subscription.subgraph == change.subgraph
+                        && subscription.entities.contains(&change.entity)
                 })
-                .and_then(|_| Ok(())),
-        );
+                .map(|subscription| subscription.sender.clone())
+                .collect::<Vec<_>>();
+
+            stream::iter_ok::<_, ()>(matching_senders).for_each(move |sender| {
+                sender
+                    .send(change.clone())
+                    .map_err(|_| ())
+                    .and_then(|_| Ok(()))
+            })
+        }));
     }
 
     /// Handles block reorganizations.
@@ -277,5 +302,23 @@ impl BasicStore for Store {
 impl StoreTrait for Store {
     fn schema_provider_event_sink(&mut self) -> Sender<SchemaProviderEvent> {
         self.schema_provider_event_sink.clone()
+    }
+
+    fn subscribe(
+        &mut self,
+        subgraph: String,
+        entities: Vec<String>,
+    ) -> Box<Stream<Item = EntityChange, Error = ()> + Send> {
+        let (sender, receiver) = channel(100);
+        let subscription = Subscription {
+            subgraph,
+            entities,
+            sender,
+        };
+
+        let subscriptions = self.subscriptions.clone();
+        subscriptions.write().unwrap().push(subscription);
+
+        Box::new(receiver)
     }
 }
